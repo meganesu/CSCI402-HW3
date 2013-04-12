@@ -99,6 +99,27 @@ kmain()
         void *bstack = page_alloc();
         pagedir_t *bpdir = pt_get();
         KASSERT(NULL != bstack && "Ran out of memory while booting.");
+	/* This little loop gives gdb a place to synch up with weenix.  In the
+	 * past the weenix command started qemu was started with -S which
+	 * allowed gdb to connect and start before the boot loader ran, but
+	 * since then a bug has appeared where berakpoints fail if gdb connects
+	 * before the boot loader runs.  See
+	 *
+	 * https://bugs.launchpad.net/qemu/+bug/526653
+	 *
+	 * This loop (along with an additional command in init.gdb setting
+	 * gdb_wait to 0) sticks weenix at a known place so gdb can join a
+	 * running weenix, set gdb_wait to zero  and catch the breakpoint in
+	 * bootstrap below.  See Config.mk for how to set GDBWAIT correctly.
+	 *
+	 * DANGER: if GDBWAIT != 0, and gdb isn't run, this loop will never
+	 * exit and weenix will not run.  Make SURE the GDBWAIT is set the way
+	 * you expect.
+	 */
+	int gdb_wait = GDBWAIT;
+
+	while (gdb_wait)
+	    ;
         context_setup(&bootstrap_context, bootstrap, 0, NULL, bstack, PAGE_SIZE, bpdir);
         context_make_active(&bootstrap_context);
 

@@ -80,7 +80,8 @@ case $machine in
 				echo "target remote localhost:$GDB_PORT" > $GDB_TMP_INIT
 				echo "python sys.path.append(\"$(pwd)\")" >> $GDB_TMP_INIT
 
-				$GDB_TERM -e $QEMU -m "$MEMORY" -cdrom "$KERN_DIR/$ISO_IMAGE" disk0.img -serial stdio -s -S -daemonize
+				$GDB_TERM -e $QEMU -m "$MEMORY" -cdrom "$KERN_DIR/$ISO_IMAGE" disk0.img -serial stdio -s &
+				sleep 5
 				$GDB $GDB_FLAGS
 				;;
 			*)

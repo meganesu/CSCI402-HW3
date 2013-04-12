@@ -18,6 +18,20 @@
 # When you finish S5FS, first enable "VM"; once this is working, then enable
 # "DYNAMIC".
 
+# Set whether or not to loop in kmain waiting for a gdb attach.  This is a hack
+# to get around the qemu/gdb bug https://bugs.launchpad.net/qemu/+bug/526653
+# If GDBWAIT is 1 kmain in kernel/main/kmain.c loops.  The commands in init.gdb
+# free qemu from that loop and the breakpoint at bootstrap is hit.
+#
+# To run without gdb, set GDBWAIT = 0
+#
+# Note that if GDBWAIT is 1 weenix must be run under gdb (./weenix -d gdb) if
+# GDBWAIT = 0 gdb will probably not be useful, but ./weenix -d gdb will run.
+#
+# If you change this value make clean and make
+
+	GDBWAIT=0
+
 #
 # Set the number of terminals that we should be launching.
 #
