@@ -11,7 +11,7 @@
 
 /* Linux kernel: drivers/ata/libata-sff.c */
 
-#define DMA_BASE_PRIMARY   0xc000
+#define DMA_BASE_PRIMARY   0xc100
 #define DMA_BASE_SECONDARY (DMA_BASE_PRIMARY + 0x08)
 
 #define DMA_COMMAND 0x00
