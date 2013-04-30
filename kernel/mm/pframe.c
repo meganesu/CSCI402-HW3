@@ -297,7 +297,43 @@ pframe_fill(pframe_t *pf)
 int
 pframe_get(struct mmobj *o, uint32_t pagenum, pframe_t **result)
 {
-        NOT_YET_IMPLEMENTED("S5FS: pframe_get");
+        /* Look for copy in memory and return in
+         * If low on memory, ask pageout daemon for more
+         * Allocate page and fill it from memory object
+         */
+
+        /* Look for copy of page in memory */
+        *result = pframe_get_resident(o, pagenum);
+
+        /* If found in memory */
+        if (*result != NULL) {
+          /* If page is busy, wait for it to become unbusy and try again */
+          while (pframe_is_busy(*result)) {
+            sched_sleep_on(&(*result)->pf_waitq);
+            /* When you wake up, you will check again to see if page is busy.
+             *   You only exit the loop once the page is no longer busy.
+             */
+          }
+          /*  Make sure page hasn't been freed before you return it. */
+          if (pframe_get_resident(o, pagenum) != NULL) {
+            /* Page is not busy and result holds contents of page */
+            return 0;
+          }
+        }
+
+        /* If you get here, page isn't currently in memory */
+
+        /* Wake pageoutd if we are low on memory */
+        if (pageoutd_needed()) { pageoutd_wakeup(); sched_sleep_on(&alloc_waitq); }
+
+        /* Allocate a new page and fill it */
+        *result = pframe_alloc(o, pagenum);
+        pframe_fill(*result);
+        return 0;
+/*        if (ret != 0) { panic("ERROR IN PFRAME_GET, FILLPAGE RETURNED ERRNO %d\n", ret); }
+        *result = pf; */
+
+        /* NOT_YET_IMPLEMENTED("S5FS: pframe_get"); */
         return 0;
 }
 
@@ -357,7 +393,20 @@ pframe_migrate(pframe_t *pf, mmobj_t *dest)
 void
 pframe_pin(pframe_t *pf)
 {
-        NOT_YET_IMPLEMENTED("S5FS: pframe_pin");
+        /* increment pf_pincount and move to pinned_list (if it's not there) */
+        pf->pf_pincount++;
+
+        /* If pincount is 1, that means this is the first time page was pinned
+         *   Need to add to pinned_list
+         */
+        if (pf->pf_pincount == 1) {
+          list_remove(&pf->pf_link);
+          list_insert_tail(&pinned_list, &pf->pf_link);
+          nallocated--;
+          npinned++;
+        }
+
+        /* NOT_YET_IMPLEMENTED("S5FS: pframe_pin"); */
 }
 
 /*
@@ -373,7 +422,18 @@ pframe_pin(pframe_t *pf)
 void
 pframe_unpin(pframe_t *pf)
 {
-        NOT_YET_IMPLEMENTED("S5FS: pframe_unpin");
+        /* Decrement pf_pincount and move to alloc_list if pf_pincount == 0 */
+        pf->pf_pincount--;
+
+        /* If pincount is 0, then page is no longer pinned. Remove from pinned list. */
+        if (pf->pf_pincount == 0) {
+          list_remove(&pf->pf_link);
+          list_insert_tail(&alloc_list, &pf->pf_link);
+          npinned--;
+          nallocated++;
+        }
+
+        /* NOT_YET_IMPLEMENTED("S5FS: pframe_unpin"); */
 }
 
 /*

@@ -209,7 +209,65 @@ s5fs_mount(struct fs *fs)
 static void
 s5fs_read_vnode(vnode_t *vnode)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_read_vnode");
+        /*
+         * This is called by vget.
+         *
+         * read_vnode will be passed a vnode_t*, which will have its vn_fs
+         * and vn_vno fields initialized.
+         *
+         * read_vnode must initialize the following members of the provided
+         * vnode_t:
+         *     vn_ops
+         *     vn_mode
+         *         and vn_devid if appropriate
+         *     vn_len
+         *     vn_i
+         *
+         * This entry point is ALLOWED TO BLOCK.
+         */
+
+        /* Call pframe_get() on memory object associated with file system as a whole */
+        mmobj_t *o = S5FS_TO_VMOBJ(VNODE_TO_S5FS(vnode));
+        pframe_t *pf;
+        int res = pframe_get(o, S5_INODE_BLOCK(vnode->vn_vno), &pf);
+        if (res != 0) panic("ERROR in pframe_get() from read_vnode()\n");
+
+        /* Pin page frame. DO SOMETHING WITH LINK COUNTS? */
+        pframe_pin(pf);
+
+        /* pframe_get() returned a block of inodes. Isolate the one you're looking for. */
+        s5_inode_t *inode = (s5_inode_t *) pf->pf_addr + S5_INODE_OFFSET(vnode->vn_vno);
+        vnode->vn_i = inode;
+
+        /* Set vn_len */
+        vnode->vn_len = inode->s5_size;
+
+        /* Check inode->s5_type to set the rest of the fields */
+        if (inode->s5_type == S5_TYPE_DATA) {
+            vnode->vn_mode = S_IFREG;
+            vnode->vn_ops = &s5fs_file_vops;
+        }
+        else if (inode->s5_type == S5_TYPE_DIR) {
+            vnode->vn_mode = S_IFDIR;
+            vnode->vn_ops = &s5fs_dir_vops;
+        }
+        else if (inode->s5_type == S5_TYPE_CHR) {
+            vnode->vn_mode = S_IFCHR;
+            vnode->vn_devid = inode->s5_indirect_block;
+            vnode->vn_cdev = bytedev_lookup(vnode->vn_devid);
+            vnode->vn_ops = (struct vnode_ops *) vnode->vn_cdev->cd_ops;
+        }
+        else if (inode->s5_type == S5_TYPE_BLK) {
+            vnode->vn_mode = S_IFBLK;
+            vnode->vn_devid = inode->s5_indirect_block;
+            vnode->vn_bdev = blockdev_lookup(vnode->vn_devid);
+            vnode->vn_ops = (struct vnode_ops *) vnode->vn_bdev->bd_ops;
+        }
+        else panic("ERROR in read_vnode(). inode type should not be free.\n");
+
+        return;
+
+        /* NOT_YET_IMPLEMENTED("S5FS: s5fs_read_vnode"); */
 }
 
 /*
@@ -320,7 +378,11 @@ s5fs_umount(fs_t *fs)
 static int
 s5fs_read(vnode_t *vnode, off_t offset, void *buf, size_t len)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_read");
+        kmutex_lock(&vnode->vn_mutex);
+        int res = s5_read_file(vnode, offset, buf, len);
+        kmutex_unlock(&vnode->vn_mutex);
+        return res;
+        /* NOT_YET_IMPLEMENTED("S5FS: s5fs_read"); */
         return -1;
 }
 
@@ -328,7 +390,11 @@ s5fs_read(vnode_t *vnode, off_t offset, void *buf, size_t len)
 static int
 s5fs_write(vnode_t *vnode, off_t offset, const void *buf, size_t len)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_write");
+        kmutex_lock(&vnode->vn_mutex);
+        int res = s5_write_file(vnode, offset, buf, len);
+        kmutex_unlock(&vnode->vn_mutex);
+        return res;
+        /* NOT_YET_IMPLEMENTED("S5FS: s5fs_write"); */
         return -1;
 }
 
@@ -378,14 +444,54 @@ s5fs_mknod(vnode_t *dir, const char *name, size_t namelen, int mode, devid_t dev
 }
 
 /*
- * See the comment in vnode.h for what is expected of this function.
- *
+ * lookup sets *result to the vnode in dir with the specified name.
+
  * You probably want to use s5_find_dirent() and vget().
  */
 int
 s5fs_lookup(vnode_t *base, const char *name, size_t namelen, vnode_t **result)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_lookup");
+/* If name is in the directory, return the vnode associated with it */
+
+         /* int s5_find_dirent(vnode_t *vnode, const char *name, size_t namelen) */
+/*
+ * Locate the directory entry in the given inode with the given name,
+ * and return its inode number. If there is no entry with the given
+ * name, return -ENOENT.
+ *
+ * You'll probably want to use s5_read_file and name_match
+ *
+ * You can either read one dirent at a time or optimize and read more.
+ * Either is fine.
+ */
+        dbg_print("MADE IT INTO LOOKUP\n");
+         int inum = s5_find_dirent(base, name, namelen);
+         if (inum == -ENOENT) {
+             dbg_print("ERROR. No dir entry with given name.\n");
+             return inum;
+         }
+         /* If you get here, dir entry has matching name. inum is its inode number. */
+
+
+         /* struct vnode *vget(struct fs *fs, ino_t vnum); */
+/*
+ *     Obtain a vnode representing the file that filesystem 'fs' identifies
+ *     by inode number 'vnum'; returns the vnode_t corresponding to the
+ *     given filesystem and vnode number.  If a vnode for the given file
+ *     already exists (it already has an entry in the system inode table) then
+ *     the reference count of that vnode is incremented and it is returned.
+ *     Otherwise a new vnode is created in the system inode table with a
+ *     reference count of 1.
+ *     This function has no unsuccessful return.
+ *
+ *     MAY BLOCK.
+ */
+
+        *result = vget(base->vn_fs, inum);
+        return 0;
+
+
+        /* NOT_YET_IMPLEMENTED("S5FS: s5fs_lookup"); */
         return -1;
 }
 
@@ -490,6 +596,17 @@ s5fs_readdir(vnode_t *vnode, off_t offset, struct dirent *d)
 static int
 s5fs_stat(vnode_t *vnode, struct stat *ss)
 {
+        s5_inode_t *i = VNODE_TO_S5INODE(vnode);
+
+        ss->st_mode = vnode->vn_mode;
+        ss->st_ino = vnode->vn_vno;
+        ss->st_nlink = VNODE_TO_S5INODE(vnode)->s5_linkcount;
+        ss->st_size = vnode->vn_len;
+        ss->st_blksize = S5_BLOCK_SIZE;
+        ss->st_blocks = s5_inode_blocks(vnode);
+
+        return 0;
+
         NOT_YET_IMPLEMENTED("S5FS: s5fs_stat");
         return -1;
 }
@@ -504,7 +621,40 @@ s5fs_stat(vnode_t *vnode, struct stat *ss)
 static int
 s5fs_fillpage(vnode_t *vnode, off_t offset, void *pagebuf)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_fillpage");
+        /* vnode = node to read
+         * offset = where to start reading
+         * pagebuf = page-sized destination
+         */
+
+        /*
+         * Used by vnode vm_object entry points (and by no one else):
+         */
+        /*
+         * Read the page of 'vnode' containing 'offset' into the
+         * page-aligned and page-sized buffer pointed to by
+         * 'pagebuf'.
+         */
+        /* return 0 on success, and -errno on failure.
+         */
+
+        /*
+         *  Find disk block with data (s5_seek_to_block())
+         *  If there is a disk block w/ data, copy it out from disk (read_block)
+         *  Else, copy zeroes out
+         */
+        int loc = s5_seek_to_block(vnode, offset, 0);
+
+        if (loc == 0) { /* If no disk block with data, copy out zeroes */
+            memset(pagebuf, 0, S5_BLOCK_SIZE);
+            return 0;
+        }
+
+        /* If you get here, there is a disk block with data */
+        /* return vnode->vn_bdev->bd_ops->read_block(vnode->vn_bdev, (char *)pagebuf, loc, 1); */
+        blockdev_t *bdev = FS_TO_S5FS(vnode->vn_fs)->s5f_bdev;
+        return bdev->bd_ops->read_block(bdev, pagebuf, loc, S5_BLOCK_SIZE);
+
+        /* NOT_YET_IMPLEMENTED("S5FS: s5fs_fillpage"); */
         return -1;
 }
 
@@ -526,6 +676,10 @@ s5fs_fillpage(vnode_t *vnode, off_t offset, void *pagebuf)
 static int
 s5fs_dirtypage(vnode_t *vnode, off_t offset)
 {
+        /* If no space allocated in inode, get some (b/c that page will eventually be written)
+         *   s5_alloc_block()
+         *   when you manipulate inode, use s5_dirty_inode() to tell paging system
+         */
         NOT_YET_IMPLEMENTED("S5FS: s5fs_dirtypage");
         return -1;
 }
@@ -536,6 +690,15 @@ s5fs_dirtypage(vnode_t *vnode, off_t offset)
 static int
 s5fs_cleanpage(vnode_t *vnode, off_t offset, void *pagebuf)
 {
+        /* vnode = node to write
+         * offset = where to start writing
+         * pagebuf = page-sized source
+         */
+
+        /* Find destination disk block (s5_seek_to_block())
+         * Copy data out to disk (write_block)
+         */
+
         NOT_YET_IMPLEMENTED("S5FS: s5fs_cleanpage");
         return -1;
 }

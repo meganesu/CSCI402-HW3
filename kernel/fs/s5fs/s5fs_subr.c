@@ -63,6 +63,10 @@ static int s5_alloc_block(s5fs_t *);
 int
 s5_seek_to_block(vnode_t *vnode, off_t seekptr, int alloc)
 {
+        
+        int loc = S5_DATA_BLOCK(seekptr);
+        return loc;
+
         NOT_YET_IMPLEMENTED("S5FS: s5_seek_to_block");
         return -1;
 }
@@ -110,6 +114,39 @@ unlock_s5(s5fs_t *fs)
 int
 s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
 {
+        /* Convert vnode to inode for easy access */
+        s5_inode_t *inode = VNODE_TO_S5INODE(vnode);
+
+        int block_num = S5_DATA_BLOCK(seek); /* Which of inode's direct blocks are you writing to? */
+        int offset = S5_DATA_OFFSET(seek); /* What is the offset within that block? */
+
+        /* This is the address where the data for the block you want to write starts */
+        int block_addr = inode->s5_direct_blocks[block_num];
+
+        pframe_t *pf;
+        int res = pframe_get(&vnode->vn_mmobj, block_addr, &pf);
+
+        pframe_dirty(pf);
+        char *read_startaddr = (char *)pf->pf_addr + S5_DATA_OFFSET(seek);
+        /* INSTEAD OF pf->pf_addr, USE inode->s5_directblocks[S5_DATA_BLOCK(seek)] ??? */
+        /* char *block_addr = inode->s5_direct_blocks[S5_DATA_BLOCK(seek)] + S5_DATA_OFFSET(seek); */
+        memcpy((void *) read_startaddr, (void *)bytes, len);
+
+
+        /* int pframe_dirty(pframe_t *pf) */
+/*
+ * Indicates that a page is about to be modified. This should be called on a
+ * page before any attempt to modify its contents. This marks the page dirty
+ * (so that pageoutd knows to clean it before reclaiming the page frame)
+ * and calls the dirtypage mmobj entry point.
+ * The given page must not be busy.
+ *
+ * This routine can block at the mmobj operation level.
+ *
+ * @param pf the page to dirty
+ * @return 0 on success, -errno on failure
+ */
+
         NOT_YET_IMPLEMENTED("S5FS: s5_write_file");
         return -1;
 }
@@ -137,6 +174,84 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
 int
 s5_read_file(struct vnode *vnode, off_t seek, char *dest, size_t len)
 {
+        /* int pframe_get(struct mmobj *o, uint32_t pagenum, pframe_t **result) */
+/*
+ * Find and return the pframe representing the page identified by the object
+ * and page number. If the page is already resident in memory, then we return
+ * the existing page. Otherwise, we allocate a new page and fill it (in which
+ * case this routine may block).
+ *
+ * As long as this routine returns successfully, the returned page will be a
+ * non-busy page that will be guaranteed to remain resident until the calling
+ * context blocks without first pinning the page.
+ *
+ * This routine may block at the mmobj operation level.
+ *
+ * @param o the parent object of the page
+ * @param pagenum the page number of this page in the object
+ * @param result used to return the pframe (NULL if there's an error)
+ * @return 0 on success, < 0 on failure.
+ */
+
+/* Start of data in file is in addr of s5_directblocks */
+
+        /* If data block and offset are within correct range, then get addr of direct block from inode in vnode
+         * Create page frame. Read from memory using pframeget.
+ memobj from vnode
+offset from inode (direct block)
+read into pframe you created
+
+If pageget was successful (it should be)
+handle case where you fall off block by reading too far
+then memcpy from pframe you got to destination
+pf_addr is start of data
+use data_offset macro to get offset
+address to read from is start of data plus offset
+return num bytes you read */
+
+        /* Convert vnode to inode for easy access */
+        s5_inode_t *inode = VNODE_TO_S5INODE(vnode);
+        /* If seek > inode->s5_size, attempting to start reading past end of file data. Return -errno. */
+        if ((uint32_t) seek > inode->s5_size) {
+            dbg_print("ERROR! Attempting to start read past end of file.\n");
+            return -EFAULT; 
+        }
+        /* If seek + len are larger than one block, you'll need to bring in multiple pages */
+
+        /* If you get here, start of read_file is within file data. */
+
+
+
+        /* Get address of direct block from inode in vnode.
+           Create page frame.
+           Read into page frame you create using pframe_get().
+           memobj from vnode, offset from inode */
+        pframe_t *pf;
+        int res = pframe_get(&vnode->vn_mmobj, inode->s5_direct_blocks[S5_DATA_BLOCK(seek)], &pf);
+        if (res != 0) {
+            dbg_print("ERROR! pframe_get() did not return successfully.\n");
+            return res;
+        }
+
+        /* If pframe_get is successful (which it should be)
+           handle case where you read too far off the end of the file
+           i.e. reset the length to read as the length until the end of the file */
+        if ((seek + len) > inode->s5_size) {
+            len = inode->s5_size - seek;
+        }
+
+        /* Use memcopy from pframe you got to destination.
+           pf_addr is start of data for that page frame
+           use S5_DATA_OFFSET() macro to get offset
+           address to read from is start of data plus offset */
+        char *read_startaddr = (char *)pf->pf_addr + S5_DATA_OFFSET(seek);
+        /* INSTEAD OF pf->pf_addr, USE inode->s5_directblocks[S5_DATA_BLOCK(seek)] ??? */
+        /* char *block_addr = inode->s5_direct_blocks[S5_DATA_BLOCK(seek)] + S5_DATA_OFFSET(seek); */
+        memcpy((void *) dest, (void *)read_startaddr, len);
+
+        /* Return the number of bytes you actually read from the file */
+        return len;
+
         NOT_YET_IMPLEMENTED("S5FS: s5_read_file");
         return -1;
 }
@@ -359,8 +474,48 @@ s5_free_inode(vnode_t *vnode)
 int
 s5_find_dirent(vnode_t *vnode, const char *name, size_t namelen)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5_find_dirent");
-        return -1;
+        /* int s5_read_file(struct vnode *vnode, off_t seek, char *dest, size_t len) */
+/*
+ * Read up to len bytes from the given inode, starting at seek bytes
+ * from the beginning of the inode. On success, return the number of
+ * bytes actually read, or 0 if the end of the file has been reached; on
+ * failure, return -errno.
+ *
+ * This function should allow reading from files or directories,
+ * treating them identically.
+ *
+ * Reading from a sparse block of the file should act like reading
+ * zeros; it should not cause the sparse blocks to be allocated.
+ *
+ * Similarly as in s5_write_file(), do not call s5_seek_to_block()
+ * directly from this function.
+ *
+ * If the region to be read would extend past the end of the file, less
+ * data will be read than was requested.
+ *
+ * You probably want to use pframe_get(), memcpy().
+ */
+        s5_dirent_t *dirent;
+        off_t offset = 0;
+
+        while ( s5_read_file(vnode, offset, (char *)dirent, sizeof(s5_dirent_t)) != 0 ) {
+            if (name_match(dirent->s5d_name, name, namelen)) {
+                return dirent->s5d_inode;
+            }
+            offset += sizeof(s5_dirent_t);
+        }
+
+        /* If you get here, you reached the end of the file and didn't find a
+         *   directory entry with a matching name. Return error.
+         */
+        return -ENOENT;
+
+
+/* #define name_match(fname, name, namelen) \
+        ( strlen(fname) == namelen && !strncmp((fname), (name), (namelen)) ) */
+
+        /* NOT_YET_IMPLEMENTED("S5FS: s5_find_dirent");
+        return -1; */
 }
 
 /*
