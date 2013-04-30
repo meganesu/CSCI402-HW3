@@ -407,7 +407,7 @@ s5fs_write(vnode_t *vnode, off_t offset, const void *buf, size_t len)
 static int
 s5fs_mmap(vnode_t *file, vmarea_t *vma, mmobj_t **ret)
 {
-        NOT_YET_IMPLEMENTED("VM: s5fs_mmap");
+        /* NOT_YET_IMPLEMENTED("VM: s5fs_mmap"); */
 
         return 0;
 }
@@ -423,6 +423,17 @@ s5fs_mmap(vnode_t *file, vmarea_t *vma, mmobj_t **ret)
 static int
 s5fs_create(vnode_t *dir, const char *name, size_t namelen, vnode_t **result)
 {
+/* Allocate an inode (pull one from disk and pin it)
+ * Add a directory entry
+ * Dirty any modified pages
+ */
+/* Called by open_namev()
+   vget() a new vnode, create an entry for it in dir of specified name
+*/
+
+/* Like mkdir and mknod, but creating a regular data file. 
+   Just change the type you pass in for alloc_inode()(?)
+ 	*/
         NOT_YET_IMPLEMENTED("S5FS: s5fs_create");
         return -1;
 }
@@ -439,6 +450,7 @@ s5fs_create(vnode_t *dir, const char *name, size_t namelen, vnode_t **result)
 static int
 s5fs_mknod(vnode_t *dir, const char *name, size_t namelen, int mode, devid_t devid)
 {
+        /* */
         NOT_YET_IMPLEMENTED("S5FS: s5fs_mknod");
         return -1;
 }
@@ -464,8 +476,10 @@ s5fs_lookup(vnode_t *base, const char *name, size_t namelen, vnode_t **result)
  * You can either read one dirent at a time or optimize and read more.
  * Either is fine.
  */
-        dbg_print("MADE IT INTO LOOKUP\n");
+         dbg_print("Looking up %s.\n", name);
+         kmutex_lock(&base->vn_mutex);
          int inum = s5_find_dirent(base, name, namelen);
+         kmutex_unlock(&base->vn_mutex);
          if (inum == -ENOENT) {
              dbg_print("ERROR. No dir entry with given name.\n");
              return inum;
@@ -486,8 +500,9 @@ s5fs_lookup(vnode_t *base, const char *name, size_t namelen, vnode_t **result)
  *
  *     MAY BLOCK.
  */
-
+        kmutex_lock(&base->vn_mutex);
         *result = vget(base->vn_fs, inum);
+        kmutex_unlock(&base->vn_mutex);
         return 0;
 
 
@@ -506,7 +521,14 @@ s5fs_lookup(vnode_t *base, const char *name, size_t namelen, vnode_t **result)
 static int
 s5fs_link(vnode_t *src, vnode_t *dir, const char *name, size_t namelen)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_link");
+        /* Add a directory entry linking to the vnode
+         * Dirty file blocks (and maybe the inode)
+         */
+        kmutex_lock(&src->vn_mutex);
+        int res = s5_link(src, dir, name, namelen);
+        kmutex_unlock(&src->vn_mutex);
+        return res;
+        /* NOT_YET_IMPLEMENTED("S5FS: s5fs_link"); */
         return -1;
 }
 
@@ -521,7 +543,15 @@ s5fs_link(vnode_t *src, vnode_t *dir, const char *name, size_t namelen)
 static int
 s5fs_unlink(vnode_t *dir, const char *name, size_t namelen)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_unlink");
+        /* Remove the directory entry linking to the vnode
+         * Reduce link count
+         * Dirty file blocks (and maybe the inode)
+         */
+        kmutex_lock(&dir->vn_mutex);
+        int res = s5_remove_dirent(dir, name, namelen);
+        kmutex_unlock(&dir->vn_mutex);
+        return res;
+        /* NOT_YET_IMPLEMENTED("S5FS: s5fs_unlink"); */
         return -1;
 }
 
@@ -532,9 +562,9 @@ s5fs_unlink(vnode_t *dir, const char *name, size_t namelen)
  * directory. These are simply links to the new directory and its
  * parent.
  *
- * When this function returns, the inode refcount on the parent should
- * be incremented, and the inode refcount on the new directory should be
- * 1. It might make more sense for the inode refcount on the new
+ * When this function returns, the linkcount on the parent should
+ * be incremented, and the linkcount on the new directory should be
+ * 1. It might make more sense for the linkcount on the new
  * directory to be 2 (since "." refers to it as well as its entry in the
  * parent dir), but convention is that empty directories have only 1
  * link.
@@ -546,7 +576,68 @@ s5fs_unlink(vnode_t *dir, const char *name, size_t namelen)
 static int
 s5fs_mkdir(vnode_t *dir, const char *name, size_t namelen)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_mkdir");
+/* Create a directory called name in dir */
+
+/* Allocate an inode (pull one from disk and pin it)
+ * Add directory entries (new dir, ., ..)
+ * Get link counts right
+ * Make modified pages dirty
+ */
+
+
+        /* int s5_alloc_inode(fs_t *fs, uint16_t type, devid_t devid) */
+/*
+ * Creates a new inode from the free list and initializes its fields.
+ * Uses S5_INODE_BLOCK to get the page from which to create the inode
+ *
+ * This function may block.
+ */
+
+        /* int s5_link(vnode_t *parent, vnode_t *child, const char *name, size_t namelen) */
+/*
+ * Create a new directory entry in directory 'parent' with the given name, which
+ * refers to the same file as 'child'.
+ *
+ * When this function returns, the inode refcount on the file that was linked to
+ * should be incremented.
+ *
+ * Remember to incrament the ref counts appropriately
+ *
+ * You probably want to use s5_find_dirent(), s5_write_file(), and s5_dirty_inode().
+ */
+
+        int inode_num = s5_alloc_inode(dir->vn_fs, S5_TYPE_DIR, 0);
+
+        pframe_t *pf;
+        int res = pframe_get(S5FS_TO_VMOBJ(VNODE_TO_S5FS(dir)), S5_INODE_BLOCK(inode_num), &pf);
+        vnode_t *new_dir = vget(dir->vn_fs, inode_num);
+
+        /* link new directory to current directory and parent directory */
+        int link1 = s5_link(dir, new_dir, name, namelen); /* Create dirent for new_dir in parent dir */
+        int link2 = s5_link(new_dir, dir, "..", 2); /* Create .. dirent in new_dir */
+        int link3 = s5_link(new_dir, new_dir, ".", 1); /* Create . dirent in new_dir */
+
+        if (link1 != 0) {
+            dbg_print("ERROR. File %s already exists.\n", name);
+            return -EEXIST;
+        }
+
+        vput(dir);
+
+        VNODE_TO_S5INODE(new_dir)->s5_linkcount = 1;
+        return 0;
+
+/*
+pframe_get for that inode. mmobj of dir (maybe on fs?). pagenum is S5_INODE_BLOCK(inode).
+this pins pageframe for you
+need to get vnode for child. use vget. use parent directory's file system and new inode number.
+link will increment the link count for the child.
+link to current directory and parent directory.
+after linking, need to set link count to one (not two)
+*/
+
+
+        /* NOT_YET_IMPLEMENTED("S5FS: s5fs_mkdir"); */
         return -1;
 }
 
@@ -563,6 +654,44 @@ s5fs_mkdir(vnode_t *dir, const char *name, size_t namelen)
 static int
 s5fs_rmdir(vnode_t *parent, const char *name, size_t namelen)
 {
+/* Removes directory name from parent
+ * Directory to be removed must be empty (except for . and ..)
+ */
+
+         /* int s5_find_dirent(vnode_t *vnode, const char *name, size_t namelen) */
+/*
+ * Locate the directory entry in the given inode with the given name,
+ * and return its inode number. If there is no entry with the given
+ * name, return -ENOENT.
+ *
+ * You'll probably want to use s5_read_file and name_match
+ *
+ * You can either read one dirent at a time or optimize and read more.
+ * Either is fine.
+ */
+
+         /* int s5_remove_dirent(vnode_t *vnode, const char *name, size_t namelen) */
+/*
+ * Locate the directory entry in the given inode with the given name,
+ * and delete it. If there is no entry with the given name, return
+ * -ENOENT.
+ *
+ * In order to ensure that the directory entries are contiguous in the
+ * directory file, you will need to move the last directory entry into
+ * the remove dirent's place.
+ *
+ * When this function returns, the inode refcount on the removed file
+ * should be decremented.
+ *
+ * It would be a nice extension to free blocks from the end of the
+ * directory file which are no longer needed.
+ *
+ * Don't forget to dirty appropriate blocks!
+ *
+ * You probably want to use vget(), vput(), s5_read_file(),
+ * s5_write_file(), and s5_dirty_inode().
+ */
+
         NOT_YET_IMPLEMENTED("S5FS: s5fs_rmdir");
         return -1;
 }
@@ -603,11 +732,13 @@ s5fs_stat(vnode_t *vnode, struct stat *ss)
         ss->st_nlink = VNODE_TO_S5INODE(vnode)->s5_linkcount;
         ss->st_size = vnode->vn_len;
         ss->st_blksize = S5_BLOCK_SIZE;
+        kmutex_lock(&vnode->vn_mutex);
         ss->st_blocks = s5_inode_blocks(vnode);
+        kmutex_unlock(&vnode->vn_mutex);
 
         return 0;
 
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_stat");
+        /* NOT_YET_IMPLEMENTED("S5FS: s5fs_stat"); */
         return -1;
 }
 
@@ -642,7 +773,9 @@ s5fs_fillpage(vnode_t *vnode, off_t offset, void *pagebuf)
          *  If there is a disk block w/ data, copy it out from disk (read_block)
          *  Else, copy zeroes out
          */
+        /* kmutex_lock(&vnode->vn_mutex);*/
         int loc = s5_seek_to_block(vnode, offset, 0);
+        /* kmutex_unlock(&vnode->vn_mutex);*/
 
         if (loc == 0) { /* If no disk block with data, copy out zeroes */
             memset(pagebuf, 0, S5_BLOCK_SIZE);
@@ -652,7 +785,10 @@ s5fs_fillpage(vnode_t *vnode, off_t offset, void *pagebuf)
         /* If you get here, there is a disk block with data */
         /* return vnode->vn_bdev->bd_ops->read_block(vnode->vn_bdev, (char *)pagebuf, loc, 1); */
         blockdev_t *bdev = FS_TO_S5FS(vnode->vn_fs)->s5f_bdev;
-        return bdev->bd_ops->read_block(bdev, pagebuf, loc, S5_BLOCK_SIZE);
+        /* kmutex_lock(&vnode->vn_mutex);*/
+        int block = bdev->bd_ops->read_block(bdev, pagebuf, loc, S5_BLOCK_SIZE); /* read_block() will block */
+        /* kmutex_unlock(&vnode->vn_mutex);*/
+        return block;
 
         /* NOT_YET_IMPLEMENTED("S5FS: s5fs_fillpage"); */
         return -1;

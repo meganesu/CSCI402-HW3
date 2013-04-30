@@ -132,6 +132,12 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
         /* char *block_addr = inode->s5_direct_blocks[S5_DATA_BLOCK(seek)] + S5_DATA_OFFSET(seek); */
         memcpy((void *) read_startaddr, (void *)bytes, len);
 
+        vnode->vn_len += len;
+        VNODE_TO_S5INODE(vnode)->s5_size += len;
+
+
+        return len;
+
 
         /* int pframe_dirty(pframe_t *pf) */
 /*
@@ -147,7 +153,7 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
  * @return 0 on success, -errno on failure
  */
 
-        NOT_YET_IMPLEMENTED("S5FS: s5_write_file");
+        /* NOT_YET_IMPLEMENTED("S5FS: s5_write_file"); */
         return -1;
 }
 
@@ -252,7 +258,7 @@ return num bytes you read */
         /* Return the number of bytes you actually read from the file */
         return len;
 
-        NOT_YET_IMPLEMENTED("S5FS: s5_read_file");
+        /* NOT_YET_IMPLEMENTED("S5FS: s5_read_file"); */
         return -1;
 }
 
@@ -495,12 +501,13 @@ s5_find_dirent(vnode_t *vnode, const char *name, size_t namelen)
  *
  * You probably want to use pframe_get(), memcpy().
  */
-        s5_dirent_t *dirent;
+        s5_dirent_t dirent;
         off_t offset = 0;
 
-        while ( s5_read_file(vnode, offset, (char *)dirent, sizeof(s5_dirent_t)) != 0 ) {
-            if (name_match(dirent->s5d_name, name, namelen)) {
-                return dirent->s5d_inode;
+        while ( s5_read_file(vnode, offset, (char*)&dirent, sizeof(s5_dirent_t)) != 0 ) {
+            dbg_print("Found directory %s\n", dirent.s5d_name);
+            if (name_match(dirent.s5d_name, name, namelen)) {
+                return dirent.s5d_inode;
             }
             offset += sizeof(s5_dirent_t);
         }
@@ -559,7 +566,69 @@ s5_remove_dirent(vnode_t *vnode, const char *name, size_t namelen)
 int
 s5_link(vnode_t *parent, vnode_t *child, const char *name, size_t namelen)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5_link");
+
+        /* int s5_find_dirent(vnode_t *vnode, const char *name, size_t namelen) */
+/*
+ * Locate the directory entry in the given inode with the given name,
+ * and return its inode number. If there is no entry with the given
+ * name, return -ENOENT.
+ */
+
+        /* int s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len) */
+/*
+ * Write len bytes to the given inode, starting at seek bytes from the
+ * beginning of the inode. On success, return the number of bytes
+ * actually written (which should be 'len', unless there's only enough
+ * room for a partial write); on failure, return -errno.
+ *
+ * This function should allow writing to files or directories, treating
+ * them identically.
+ *
+ * Writing to a sparse block of the file should cause that block to be
+ * allocated.  Writing past the end of the file should increase the size
+ * of the file. Blocks between the end and where you start writing will
+ * be sparse.
+ *
+ * Do not call s5_seek_to_block() directly from this function.  You will
+ * use the vnode's pframe functions, which will eventually result in a
+ * call to s5_seek_to_block().
+ *
+ * You will need pframe_dirty(), pframe_get(), memcpy().
+ */
+
+        /* #define s5_dirty_inode(fs, inode)  */
+
+        /* Make sure child doesn't already exist. Use find_dirent for that.
+else create a dirent s5_dirent_t, initizlie
+inode value is s5 number. convert vnode to s5 inode macro.
+write to file, increment link count, dirty parent's inode.
+seek should be length of parent. len is sizeof(dirent_t)
+return how many bytes you wrote
+*/
+
+        /* Make sure child doesn't already exist */
+        int exists = s5_find_dirent(parent, name, namelen);
+        if (exists != -ENOENT) {
+            dbg_print("Can't create link. File %s already exists.\n", name);
+            return -EEXIST;
+        }
+
+        /* If you get here, child file doesn't exist yet, so you can create it. */
+        s5_dirent_t new_dirent;
+        strncpy(new_dirent.s5d_name, name, S5_NAME_LEN-1);
+        new_dirent.s5d_inode = VNODE_TO_S5INODE(child)->s5_number;
+
+        int res = s5_write_file(parent, parent->vn_len, (char*)&new_dirent, sizeof(s5_dirent_t));
+
+        /* Increment the link count for the child inode */
+        VNODE_TO_S5INODE(child)->s5_linkcount++;
+
+        /* Dirty parent's inode */
+        s5_dirty_inode(VNODE_TO_S5FS(parent), VNODE_TO_S5INODE(parent));
+
+        return 0;
+
+        /* NOT_YET_IMPLEMENTED("S5FS: s5_link"); */
         return -1;
 }
 

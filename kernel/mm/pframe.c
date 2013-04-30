@@ -324,7 +324,10 @@ pframe_get(struct mmobj *o, uint32_t pagenum, pframe_t **result)
         /* If you get here, page isn't currently in memory */
 
         /* Wake pageoutd if we are low on memory */
-        if (pageoutd_needed()) { pageoutd_wakeup(); sched_sleep_on(&alloc_waitq); }
+        if (pageoutd_needed()) {
+            pageoutd_wakeup();
+            sched_sleep_on(&alloc_waitq);
+        }
 
         /* Allocate a new page and fill it */
         *result = pframe_alloc(o, pagenum);
