@@ -44,3 +44,8 @@ void kshell_destroy(kshell_t *ksh);
  * @return the number of bytes read
  */
 int kshell_execute_next(kshell_t *ksh);
+
+/**
+ * Workaround for unresponsive kshell in current VM setup
+ */
+int kshell_test(kshell_t *ksh,char *command);

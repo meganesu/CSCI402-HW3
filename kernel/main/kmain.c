@@ -362,6 +362,8 @@ initproc_run(int arg1, void *arg2)
         if (NULL == kshell)
                 panic("init: Couldn't create kernel shell\n");
 
+        dbg_print("Going to test kshell ls\n");
+        kshell_test(kshell,"ls");
         while (kshell_execute_next(kshell));
         kshell_destroy(kshell);
 #endif
