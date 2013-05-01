@@ -123,6 +123,11 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
         /* This is the address where the data for the block you want to write starts */
         int block_addr = inode->s5_direct_blocks[block_num];
 
+        dbg_print("vnode dir length before: %d\n", vnode->vn_len);
+        vnode->vn_len += len;
+        dbg_print("vnode dir length after: %d\n", vnode->vn_len);
+        VNODE_TO_S5INODE(vnode)->s5_size += len;
+
         pframe_t *pf;
         int res = pframe_get(&vnode->vn_mmobj, block_addr, &pf);
 
@@ -131,9 +136,6 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
         /* INSTEAD OF pf->pf_addr, USE inode->s5_directblocks[S5_DATA_BLOCK(seek)] ??? */
         /* char *block_addr = inode->s5_direct_blocks[S5_DATA_BLOCK(seek)] + S5_DATA_OFFSET(seek); */
         memcpy((void *) read_startaddr, (void *)bytes, len);
-
-        vnode->vn_len += len;
-        VNODE_TO_S5INODE(vnode)->s5_size += len;
 
 
         return len;
@@ -225,8 +227,6 @@ return num bytes you read */
         /* If seek + len are larger than one block, you'll need to bring in multiple pages */
 
         /* If you get here, start of read_file is within file data. */
-
-
 
         /* Get address of direct block from inode in vnode.
            Create page frame.
@@ -615,13 +615,14 @@ return how many bytes you wrote
 
         /* If you get here, child file doesn't exist yet, so you can create it. */
         s5_dirent_t new_dirent;
-        strncpy(new_dirent.s5d_name, name, S5_NAME_LEN-1);
+        strncpy(&new_dirent.s5d_name, name, S5_NAME_LEN-1);
+        new_dirent.s5d_name[namelen] = '\0';
         new_dirent.s5d_inode = VNODE_TO_S5INODE(child)->s5_number;
 
         int res = s5_write_file(parent, parent->vn_len, (char*)&new_dirent, sizeof(s5_dirent_t));
 
         /* Increment the link count for the child inode */
-        VNODE_TO_S5INODE(child)->s5_linkcount++;
+        VNODE_TO_S5INODE(child)->s5_linkcount ++;
 
         /* Dirty parent's inode */
         s5_dirty_inode(VNODE_TO_S5FS(parent), VNODE_TO_S5INODE(parent));

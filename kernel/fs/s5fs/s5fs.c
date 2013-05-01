@@ -239,6 +239,8 @@ s5fs_read_vnode(vnode_t *vnode)
         s5_inode_t *inode = (s5_inode_t *) pf->pf_addr + S5_INODE_OFFSET(vnode->vn_vno);
         vnode->vn_i = inode;
 
+        if (inode->s5_linkcount == 1) inode->s5_linkcount++;
+
         /* Set vn_len */
         vnode->vn_len = inode->s5_size;
 
@@ -434,7 +436,27 @@ s5fs_create(vnode_t *dir, const char *name, size_t namelen, vnode_t **result)
 /* Like mkdir and mknod, but creating a regular data file. 
    Just change the type you pass in for alloc_inode()(?)
  	*/
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_create");
+
+        int inode_num = s5_alloc_inode(dir->vn_fs, S5_TYPE_DATA, 0); /* Pull new inode from disk */
+
+        pframe_t *pf;
+        int res = pframe_get(S5FS_TO_VMOBJ(VNODE_TO_S5FS(dir)), S5_INODE_BLOCK(inode_num), &pf);
+        vnode_t *new_file = vget(dir->vn_fs, inode_num); /* vget will pin the page this inode is in */
+
+        /* link new directory to current directory and parent directory */
+        int link1 = s5_link(dir, new_file, name, namelen); /* Create dirent for new_dir in parent dir */
+
+        if (link1 != 0) {
+            dbg_print("ERROR. File %s already exists.\n", name);
+            return -EEXIST;
+        }
+
+        *result = new_file;
+
+        /* vput(dir); */
+
+
+        /* NOT_YET_IMPLEMENTED("S5FS: s5fs_create"); */
         return -1;
 }
 
@@ -450,9 +472,55 @@ s5fs_create(vnode_t *dir, const char *name, size_t namelen, vnode_t **result)
 static int
 s5fs_mknod(vnode_t *dir, const char *name, size_t namelen, int mode, devid_t devid)
 {
-        /* */
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_mknod");
+        dbg_print("Made it into mknod(). Making %s\n", name);
+        int type;
+        if (S_ISCHR(mode)) type = S5_TYPE_CHR;
+        else if (S_ISBLK(mode)) type = S5_TYPE_BLK;
+        else return -1; /* Should not happen. This means mode passed in was not CHR or BLK. */
+        dbg_print("type %d\n", type);
+        int inode_num = s5_alloc_inode(dir->vn_fs, type, devid);
+
+        pframe_t *pf;
+        int res = pframe_get(S5FS_TO_VMOBJ(VNODE_TO_S5FS(dir)), S5_INODE_BLOCK(inode_num), &pf);
+        vnode_t *new_dev = vget(dir->vn_fs, inode_num);
+
+        /* link new directory to current directory and parent directory */
+        int link1 = s5fs_link(dir, new_dev, name, namelen); /* Create dirent for new_dir in parent dir */
+
+        if (link1 != 0) {
+            dbg_print("ERROR. File %s already exists.\n", name);
+            return -EEXIST;
+        }
+
+        vput(new_dev);
+
+        dbg_print("new dev linkcount: %d\n", VNODE_TO_S5INODE(new_dev)->s5_linkcount);
+        return 0;
+
+        /* NOT_YET_IMPLEMENTED("S5FS: s5fs_mknod"); */
         return -1;
+
+/*
+        int inode_num = s5_alloc_inode(dir->vn_fs, S5_TYPE_DIR, 0);
+
+        pframe_t *pf;
+        int res = pframe_get(S5FS_TO_VMOBJ(VNODE_TO_S5FS(dir)), S5_INODE_BLOCK(inode_num), &pf);
+        vnode_t *new_dir = vget(dir->vn_fs, inode_num);
+
+         link new directory to current directory and parent directory 
+        int link1 = s5fs_link(dir, new_dir, name, namelen);  Create dirent for new_dir in parent dir 
+        int link2 = s5fs_link(new_dir, new_dir, ".", 1); 
+        int link3 = s5fs_link(new_dir, dir, "..", 2); 
+
+        if (link1 != 0) {
+            dbg_print("ERROR. File %s already exists.\n", name);
+            return -EEXIST;
+        }
+
+        vput(new_dir);
+
+        VNODE_TO_S5INODE(new_dir)->s5_linkcount = 1;
+*/
 }
 
 /*
@@ -613,18 +681,19 @@ s5fs_mkdir(vnode_t *dir, const char *name, size_t namelen)
         vnode_t *new_dir = vget(dir->vn_fs, inode_num);
 
         /* link new directory to current directory and parent directory */
-        int link1 = s5_link(dir, new_dir, name, namelen); /* Create dirent for new_dir in parent dir */
-        int link2 = s5_link(new_dir, dir, "..", 2); /* Create .. dirent in new_dir */
-        int link3 = s5_link(new_dir, new_dir, ".", 1); /* Create . dirent in new_dir */
+        int link1 = s5fs_link(dir, new_dir, name, namelen); /* Create dirent for new_dir in parent dir */
+        int link2 = s5fs_link(new_dir, new_dir, ".", 1); /* Create . dirent in new_dir */
+        int link3 = s5fs_link(new_dir, dir, "..", 2); /* Create .. dirent in new_dir */
 
         if (link1 != 0) {
             dbg_print("ERROR. File %s already exists.\n", name);
             return -EEXIST;
         }
 
-        vput(dir);
-
         VNODE_TO_S5INODE(new_dir)->s5_linkcount = 1;
+
+        /* vput(new_dir); */
+
         return 0;
 
 /*
