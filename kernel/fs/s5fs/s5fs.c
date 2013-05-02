@@ -232,14 +232,14 @@ s5fs_read_vnode(vnode_t *vnode)
         int res = pframe_get(o, S5_INODE_BLOCK(vnode->vn_vno), &pf);
         if (res != 0) panic("ERROR in pframe_get() from read_vnode()\n");
 
-        /* Pin page frame. DO SOMETHING WITH LINK COUNTS? */
+        /* Pin page frame. */
         pframe_pin(pf);
 
         /* pframe_get() returned a block of inodes. Isolate the one you're looking for. */
         s5_inode_t *inode = (s5_inode_t *) pf->pf_addr + S5_INODE_OFFSET(vnode->vn_vno);
         vnode->vn_i = inode;
 
-        if (inode->s5_linkcount == 1) inode->s5_linkcount++;
+        /*if (inode->s5_linkcount == 1)*/ inode->s5_linkcount++;
 
         /* Set vn_len */
         vnode->vn_len = inode->s5_size;
@@ -283,6 +283,22 @@ s5fs_read_vnode(vnode_t *vnode)
 static void
 s5fs_delete_vnode(vnode_t *vnode)
 {
+        /*
+         * The inverse of read_vnode; delete_vnode is called by vput when the
+         * specified vnode_t no longer needs to exist (it is neither actively
+         * nor passively referenced).
+         *
+         * This entry point is ALLOWED TO BLOCK.
+         */
+
+        pframe_t *pf;
+        int res = pframe_get(S5FS_TO_VMOBJ(VNODE_TO_S5FS(vnode)), S5_INODE_BLOCK(vnode->vn_vno), &pf);
+
+        VNODE_TO_S5INODE(vnode)->s5_linkcount--;
+        if (VNODE_TO_S5INODE(vnode)->s5_linkcount == 0) {s5_free_inode(vnode);}
+
+        pframe_unpin(pf); 
+
         NOT_YET_IMPLEMENTED("S5FS: s5fs_delete_vnode");
 }
 
@@ -296,6 +312,17 @@ s5fs_delete_vnode(vnode_t *vnode)
 static int
 s5fs_query_vnode(vnode_t *vnode)
 {
+        /*
+         * Returns 1 if the vnode still exists in the filesystem, 0 of it can
+         * be deleted. Called by vput when there are no active references to
+         * the vnode. If query_vnode returns 0, vput evicts all pages of the vnode
+         * from memory so that it can be deleted.
+         */
+
+        s5_inode_t *inode = (s5_inode_t *) vnode->vn_i;
+        if ( inode->s5_linkcount > 1 ) return 1;
+        return 0;
+
         NOT_YET_IMPLEMENTED("S5FS: s5fs_query_vnode");
         return 0;
 }
@@ -679,20 +706,29 @@ s5fs_mkdir(vnode_t *dir, const char *name, size_t namelen)
         pframe_t *pf;
         int res = pframe_get(S5FS_TO_VMOBJ(VNODE_TO_S5FS(dir)), S5_INODE_BLOCK(inode_num), &pf);
         vnode_t *new_dir = vget(dir->vn_fs, inode_num);
+        /*dbg_print("1 Child %s link count is %d\n", name, VNODE_TO_S5INODE(new_dir)->s5_linkcount);
+        dbg_print("  Child %s ref count is %d\n", name, new_dir->vn_refcount);*/
 
-        /* link new directory to current directory and parent directory */
-        int link1 = s5fs_link(dir, new_dir, name, namelen); /* Create dirent for new_dir in parent dir */
-        int link2 = s5fs_link(new_dir, new_dir, ".", 1); /* Create . dirent in new_dir */
-        int link3 = s5fs_link(new_dir, dir, "..", 2); /* Create .. dirent in new_dir */
-
-        if (link1 != 0) {
+        if (VNODE_TO_S5INODE(new_dir)->s5_linkcount != 1) { /* Only one linking to you is from the vget */
             dbg_print("ERROR. File %s already exists.\n", name);
             return -EEXIST;
         }
 
-        VNODE_TO_S5INODE(new_dir)->s5_linkcount = 1;
+        /* link new directory to current directory and parent directory */
+        int link1 = s5fs_link(dir, new_dir, name, namelen); /* Create dirent for new_dir in parent dir */
+        /*dbg_print("2 Child %s link count is %d\n", name, VNODE_TO_S5INODE(new_dir)->s5_linkcount);
+        dbg_print("  Child %s ref count is %d\n", name, new_dir->vn_refcount);*/
+        int link2 = s5fs_link(new_dir, new_dir, ".", 1); /* Create . dirent in new_dir */
+        VNODE_TO_S5INODE(new_dir)->s5_linkcount--; /* Don't want the link to itself to count */
+        /*dbg_print("3 Child %s link count is %d\n", name, VNODE_TO_S5INODE(new_dir)->s5_linkcount);
+        dbg_print("  Child %s ref count is %d\n", name, new_dir->vn_refcount);*/
+        int link3 = s5fs_link(new_dir, dir, "..", 2); /* Create .. dirent in new_dir */
+        /*dbg_print("4 Child %s link count is %d\n", name, VNODE_TO_S5INODE(new_dir)->s5_linkcount);
+        dbg_print("  Child %s ref count is %d\n", name, new_dir->vn_refcount);*/
 
-        /* vput(new_dir); */
+        vput(new_dir);
+        /*dbg_print("Child %s link count is %d\n", name, VNODE_TO_S5INODE(new_dir)->s5_linkcount);
+        dbg_print("  Child %s ref count is %d\n", name, new_dir->vn_refcount);*/
 
         return 0;
 
@@ -713,7 +749,7 @@ after linking, need to set link count to one (not two)
 /*
  * See the comment in vnode.h for what is expected of this function.
  *
- * When this function returns, the inode refcount on the parent should be
+ * When this function returns, the linkcount on the parent should be
  * decremented (since ".." in the removed directory no longer references
  * it). Remember that the directory must be empty (except for "." and
  * "..").

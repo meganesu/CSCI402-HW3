@@ -505,7 +505,7 @@ s5_find_dirent(vnode_t *vnode, const char *name, size_t namelen)
         off_t offset = 0;
 
         while ( s5_read_file(vnode, offset, (char*)&dirent, sizeof(s5_dirent_t)) != 0 ) {
-            dbg_print("Found directory %s\n", dirent.s5d_name);
+            dbg_print("Found directory %s on vnode %d\n", dirent.s5d_name, dirent.s5d_inode);
             if (name_match(dirent.s5d_name, name, namelen)) {
                 return dirent.s5d_inode;
             }
@@ -622,7 +622,8 @@ return how many bytes you wrote
         int res = s5_write_file(parent, parent->vn_len, (char*)&new_dirent, sizeof(s5_dirent_t));
 
         /* Increment the link count for the child inode */
-        VNODE_TO_S5INODE(child)->s5_linkcount ++;
+        VNODE_TO_S5INODE(child)->s5_linkcount++;
+        dbg_print("Incremented child %s link count to %d\n", name, VNODE_TO_S5INODE(child)->s5_linkcount);
 
         /* Dirty parent's inode */
         s5_dirty_inode(VNODE_TO_S5FS(parent), VNODE_TO_S5INODE(parent));
