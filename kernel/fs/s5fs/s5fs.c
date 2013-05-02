@@ -544,7 +544,7 @@ s5fs_lookup(vnode_t *base, const char *name, size_t namelen, vnode_t **result)
  * You can either read one dirent at a time or optimize and read more.
  * Either is fine.
  */
-         dbg_print("Looking up %s.\n", name);
+         dbg_print("Looking up %s\n", name);
          kmutex_lock(&base->vn_mutex);
          int inum = s5_find_dirent(base, name, namelen);
          kmutex_unlock(&base->vn_mutex);
@@ -777,7 +777,44 @@ s5fs_rmdir(vnode_t *parent, const char *name, size_t namelen)
 static int
 s5fs_readdir(vnode_t *vnode, off_t offset, struct dirent *d)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_readdir");
+        /*
+         * readdir reads one directory entry from the dir into the struct
+         * dirent. On success, it returns the amount that offset should be
+         * increased by to obtain the next directory entry with a
+         * subsequent call to readdir. If the end of the file as been
+         * reached (offset == file->vn_len), no directory entry will be
+         * read and 0 will be returned.
+         */
+
+        /* int s5_read_file(struct vnode *vnode, off_t seek, char *dest, size_t len) */
+/*
+ * Read up to len bytes from the given inode, starting at seek bytes
+ * from the beginning of the inode. On success, return the number of
+ * bytes actually read, or 0 if the end of the file has been reached; on
+ * failure, return -errno.
+ */
+        if (offset == vnode->vn_len) return 0; /* Don't read dirent if EOF reached */
+
+        s5_dirent_t dirent_read;
+        int blocks_read = s5_read_file(vnode, offset, (char *)&dirent_read, sizeof(s5_dirent_t));
+
+
+/* typedef struct dirent {
+        ino_t   d_ino;                  
+        off_t   d_off;                  seek pointer of next entry
+        char    d_name[NAME_LEN + 1];   
+} dirent_t; 
+typedef struct s5_dirent {
+        uint32_t   s5d_inode;
+        char       s5d_name[S5_NAME_LEN];
+} s5_dirent_t; */
+
+        /* Set fields in d based on what you read into dirent_read */
+        d->d_ino = dirent_read.s5d_inode;
+        d->d_off = offset+blocks_read;
+        strncpy(d->d_name, dirent_read.s5d_name, S5_NAME_LEN-1);
+        return blocks_read;
+        /* NOT_YET_IMPLEMENTED("S5FS: s5fs_readdir");*/
         return -1;
 }
 
