@@ -299,7 +299,7 @@ s5fs_delete_vnode(vnode_t *vnode)
 
         pframe_unpin(pf); 
 
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_delete_vnode");
+        /* NOT_YET_IMPLEMENTED("S5FS: s5fs_delete_vnode"); */
 }
 
 /*
@@ -323,7 +323,7 @@ s5fs_query_vnode(vnode_t *vnode)
         if ( inode->s5_linkcount > 1 ) return 1;
         return 0;
 
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_query_vnode");
+        /* NOT_YET_IMPLEMENTED("S5FS: s5fs_query_vnode"); */
         return 0;
 }
 
@@ -797,6 +797,11 @@ s5fs_rmdir(vnode_t *parent, const char *name, size_t namelen)
  * s5_write_file(), and s5_dirty_inode().
  */
 
+
+/* Make sure vnode to remove is directory type */
+/* Make sure directory is empty. Scan through dirents and make sure
+ *  only . and .. are present. Otherwise return error.
+ */
         NOT_YET_IMPLEMENTED("S5FS: s5fs_rmdir");
         return -1;
 }
@@ -928,7 +933,7 @@ s5fs_fillpage(vnode_t *vnode, off_t offset, void *pagebuf)
         /* return vnode->vn_bdev->bd_ops->read_block(vnode->vn_bdev, (char *)pagebuf, loc, 1); */
         blockdev_t *bdev = FS_TO_S5FS(vnode->vn_fs)->s5f_bdev;
         /* kmutex_lock(&vnode->vn_mutex);*/
-        int block = bdev->bd_ops->read_block(bdev, pagebuf, loc, S5_BLOCK_SIZE); /* read_block() will block */
+        int block = bdev->bd_ops->read_block(bdev, pagebuf, loc, 1); /* read_block() will block */
         /* kmutex_unlock(&vnode->vn_mutex);*/
         return block;
 

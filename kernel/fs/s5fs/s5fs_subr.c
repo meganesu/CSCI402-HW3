@@ -63,9 +63,49 @@ static int s5_alloc_block(s5fs_t *);
 int
 s5_seek_to_block(vnode_t *vnode, off_t seekptr, int alloc)
 {
-        
-        int loc = S5_DATA_BLOCK(seekptr);
-        return loc;
+        /* seekptr defines which disk block in a file you're looking at
+             it's an integer. corresponds to the index of the direct block
+             (or indirect block entry) you want to access.
+         */
+        /* This function should take that seekptr and translate it to the actual
+             disk address where the contents of that block of the file lives.
+         */
+
+        s5_inode_t *inode = VNODE_TO_S5INODE(vnode);
+
+        /* Make sure offset is within file length
+             i.e. not trying to read direct block that isn't used by file */
+
+        uint32_t disk_block_addr;
+
+        /* Figure out if you're accessing a direct block or an indirect block */
+        if (S5_DATA_BLOCK(seekptr) > S5_NIDIRECT_BLOCKS-1) {
+          /* Indirect block field in inode corresponds to a disk block number
+           *   where the indirect block data lives
+           */
+          pframe_t *pf;
+          pframe_get(S5FS_TO_VMOBJ(VNODE_TO_S5FS(vnode)), inode->s5_indirect_block, &pf);
+          pframe_pin(pf);
+
+          off_t indirect_block_index = S5_DATA_BLOCK(seekptr) - (S5_NDIRECT_BLOCKS-1);
+          int iblock_entry_addr = pf->pf_addr + (sizeof(int) * indirect_block_index);
+
+          memcpy((void *) &disk_block_addr, (void *) iblock_entry_addr, sizeof(int));
+
+          pframe_unpin(pf);
+
+          return disk_block_addr;
+        }
+
+        /* If accessing a direct block */
+        disk_block_addr = inode->s5_direct_blocks[S5_DATA_BLOCK(seekptr)];
+
+        /* Check if block is sparse, i.e. disk addr is 0 */
+
+        /* If sparse block and alloc is true, use alloc_block() */
+
+        return disk_block_addr;
+
 
         NOT_YET_IMPLEMENTED("S5FS: s5_seek_to_block");
         return -1;
@@ -129,7 +169,7 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
         VNODE_TO_S5INODE(vnode)->s5_size += len;
 
         pframe_t *pf;
-        int res = pframe_get(&vnode->vn_mmobj, block_addr, &pf);
+        int res = pframe_get(&vnode->vn_mmobj, block_num, &pf);
 
         pframe_dirty(pf);
         char *read_startaddr = (char *)pf->pf_addr + S5_DATA_OFFSET(seek);
@@ -217,6 +257,10 @@ use data_offset macro to get offset
 address to read from is start of data plus offset
 return num bytes you read */
 
+        /* Here, seek is an offset in BYTES (not blocks), where you want to
+            start reading file from.
+         */
+
         /* Convert vnode to inode for easy access */
         s5_inode_t *inode = VNODE_TO_S5INODE(vnode);
         /* If seek > inode->s5_size, attempting to start reading past end of file data. Return -errno. */
@@ -233,7 +277,8 @@ return num bytes you read */
            Read into page frame you create using pframe_get().
            memobj from vnode, offset from inode */
         pframe_t *pf;
-        int res = pframe_get(&vnode->vn_mmobj, inode->s5_direct_blocks[S5_DATA_BLOCK(seek)], &pf);
+        /*int res = pframe_get(&vnode->vn_mmobj, inode->s5_direct_blocks[S5_DATA_BLOCK(seek)], &pf);*/
+        int res = pframe_get(&vnode->vn_mmobj, S5_DATA_BLOCK(seek), &pf);
         if (res != 0) {
             dbg_print("ERROR! pframe_get() did not return successfully.\n");
             return res;

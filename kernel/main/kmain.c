@@ -364,6 +364,8 @@ initproc_run(int arg1, void *arg2)
 
         dbg_print("Going to test kshell ls\n");
         kshell_test(kshell,"ls\n");
+        dbg_print("Going to test kshell cat README\n");
+        kshell_test(kshell,"cat hamlet\n");
         /*while (kshell_execute_next(kshell));*/
         kshell_destroy(kshell);
 #endif
