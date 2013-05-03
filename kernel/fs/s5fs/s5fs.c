@@ -922,6 +922,7 @@ s5fs_fillpage(vnode_t *vnode, off_t offset, void *pagebuf)
          */
         /* kmutex_lock(&vnode->vn_mutex);*/
         int loc = s5_seek_to_block(vnode, offset, 0);
+        dbg_print("SEEK TO BLOCK RETURNS %d\n", loc);
         /* kmutex_unlock(&vnode->vn_mutex);*/
 
         if (loc == 0) { /* If no disk block with data, copy out zeroes */

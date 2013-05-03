@@ -63,9 +63,9 @@ static int s5_alloc_block(s5fs_t *);
 int
 s5_seek_to_block(vnode_t *vnode, off_t seekptr, int alloc)
 {
-        /* seekptr defines which disk block in a file you're looking at
-             it's an integer. corresponds to the index of the direct block
-             (or indirect block entry) you want to access.
+        /* seekptr defines which byte in a file you're looking at.
+             it's an integer. not yet in terms of direct blocks or
+             indirect block entries. use S5_DATA_BLOCK() for that.
          */
         /* This function should take that seekptr and translate it to the actual
              disk address where the contents of that block of the file lives.
@@ -79,7 +79,7 @@ s5_seek_to_block(vnode_t *vnode, off_t seekptr, int alloc)
         uint32_t disk_block_addr;
 
         /* Figure out if you're accessing a direct block or an indirect block */
-        if (S5_DATA_BLOCK(seekptr) > S5_NIDIRECT_BLOCKS-1) {
+        if (S5_DATA_BLOCK(seekptr) > S5_NDIRECT_BLOCKS-1) {
           /* Indirect block field in inode corresponds to a disk block number
            *   where the indirect block data lives
            */
@@ -87,7 +87,7 @@ s5_seek_to_block(vnode_t *vnode, off_t seekptr, int alloc)
           pframe_get(S5FS_TO_VMOBJ(VNODE_TO_S5FS(vnode)), inode->s5_indirect_block, &pf);
           pframe_pin(pf);
 
-          off_t indirect_block_index = S5_DATA_BLOCK(seekptr) - (S5_NDIRECT_BLOCKS-1);
+          off_t indirect_block_index = S5_DATA_BLOCK(seekptr) - S5_NDIRECT_BLOCKS;
           int iblock_entry_addr = pf->pf_addr + (sizeof(int) * indirect_block_index);
 
           memcpy((void *) &disk_block_addr, (void *) iblock_entry_addr, sizeof(int));
