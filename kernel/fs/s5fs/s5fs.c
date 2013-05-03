@@ -480,7 +480,7 @@ s5fs_create(vnode_t *dir, const char *name, size_t namelen, vnode_t **result)
 
         *result = new_file;
 
-        /* vput(dir); */
+        /*vput(dir);*/
 
 
         /* NOT_YET_IMPLEMENTED("S5FS: s5fs_create"); */

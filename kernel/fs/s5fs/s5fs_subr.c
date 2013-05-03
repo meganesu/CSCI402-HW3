@@ -88,7 +88,7 @@ s5_seek_to_block(vnode_t *vnode, off_t seekptr, int alloc)
           pframe_pin(pf);
 
           off_t indirect_block_index = S5_DATA_BLOCK(seekptr) - S5_NDIRECT_BLOCKS;
-          int iblock_entry_addr = pf->pf_addr + (sizeof(int) * indirect_block_index);
+          char *iblock_entry_addr = (char *) pf->pf_addr + (sizeof(int) * indirect_block_index);
 
           memcpy((void *) &disk_block_addr, (void *) iblock_entry_addr, sizeof(int));
 
@@ -691,7 +691,59 @@ return how many bytes you wrote
 int
 s5_inode_blocks(vnode_t *vnode)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5_inode_blocks");
+        int block_count = 0;
+        s5_inode_t *inode = VNODE_TO_S5INODE(vnode);
+
+        /* For each block within length of file */
+        int blocks_to_check = S5_DATA_BLOCK(vnode->vn_len);
+        if (S5_DATA_OFFSET(vnode->vn_len) > 0) {
+            blocks_to_check++; /* Additional block needed to hold partial block at end of file */
+        }
+        dbg_print("Blocks to check: %d\n", blocks_to_check);
+
+        int i;
+        for (i = 0; i < S5_NDIRECT_BLOCKS; i++) {
+
+            /* Read value in ith direct block */
+            if (inode->s5_direct_blocks[i] != 0) {
+                block_count++;
+            }
+
+            if (i == blocks_to_check-1) { /* If you've checked all blocks in file */
+                return block_count;
+            }
+        }
+
+        /* (blocks_to_check > S5_NDIRECT_BLOCKS-1) */
+          /* Need to go through indirect block entries */
+
+        block_count++; /* Increment once, to include indirect block pointer in inode */
+
+        uint32_t disk_block_addr; /* Will store contents of indirect block entry */
+
+        /* Bring indirect block into memory */
+        pframe_t *pf;
+        pframe_get(S5FS_TO_VMOBJ(VNODE_TO_S5FS(vnode)), inode->s5_indirect_block, &pf);
+        pframe_pin(pf);
+
+        for (i = 0; i < (blocks_to_check - S5_NDIRECT_BLOCKS); i++) {
+            /* Indirect block field in inode corresponds to a disk block number
+             *   where the indirect block data lives
+             */
+            off_t indirect_block_index = i;
+            char *iblock_entry_addr = (char *) pf->pf_addr + (sizeof(int) * indirect_block_index);
+
+            memcpy((void *) &disk_block_addr, (void *) iblock_entry_addr, sizeof(int));
+
+            if (disk_block_addr != 0) block_count++;
+        }
+
+        pframe_unpin(pf);
+
+        return block_count;
+
+
+        /* NOT_YET_IMPLEMENTED("S5FS: s5_inode_blocks"); */
         return -1;
 }
 

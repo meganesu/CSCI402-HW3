@@ -447,6 +447,66 @@ int kshell_test(kshell_t *ksh,char *command)
 {
         char *args[10];
         int argc = 0;
+
+        /* Even though we can't redirect I/O to files before VFS, we
+         * still want to scrub out any reference to redirection before
+         * passing the line off to kshell_get_args */
+        int nbytes, retval;
+        int append;
+        /*
+         * Need that extra byte at the end. See comment in
+         * kshell_find_next_arg.
+         */
+        char buf[KSH_BUF_SIZE + 1];
+        /*int cmd_len = sizeof(command)/sizeof(*command);
+        dbg_print("Size of command, *command: %d, %d\n", sizeof(command), sizeof(*command));
+        dbg_print("Strlen: %d\n", strlen(command));
+        dbg_print("Command length of '%s' = %d\n", command, cmd_len);*/
+        memcpy(&buf, command, strlen(command));
+        nbytes = strlen(command);
+        char redirect_in[MAXPATHLEN];
+        char redirect_out[MAXPATHLEN];
+
+        /*if ((nbytes = kshell_read(ksh, buf, KSH_BUF_SIZE)) <= 0) {
+                return nbytes;
+        }
+        if (nbytes == 1) return 1;*/
+        if (buf[nbytes - 1] == '\n') {
+                /* Overwrite the newline with a null terminator */
+                buf[--nbytes] = '\0';
+        } else {
+                /* Add the null terminator to the end */
+                buf[nbytes] = '\0';
+        }
+
+        redirect_in[0] = redirect_out[0] = '\0';
+        if (kshell_find_redirection(ksh, buf, redirect_in, redirect_out, &append) < 0)
+                goto done;
+#ifdef __VFS__
+        if ((retval = kshell_redirect(ksh, redirect_in, redirect_out, append)) < 0) {
+                dprintf("Error redirecting I/O\n");
+                goto done;
+        }
+#endif
+
+/**
+ * Finds the redirection operators ('<' and '>') in the input line,
+ * stores the name of the file to redirect stdout in in redirect_out
+ * and the name of the file to redirect stdin in redirect_in, and
+ * removes any trace of the redirection from the input line.
+ *
+ * @param ksh the kshell
+ * @param line the input line
+ * @param redirect_in buffer to store the name of the file to redirect
+ * stdin from. Buffer size assumed to be at least MAXPATHLEN
+ * @param redirect_out buffer to store the name of the file to stdout
+ * to. Buffer size assumed to be at least MAXPATHLEN
+ * @param append out parameter containing true if the file stdout is
+ * being redirected to should be appeneded to
+ * @return 0 on success and <0 on error
+ */
+
+
         kshell_get_args(ksh, command, args, KSH_MAX_ARGS, &argc);
         kshell_command_t *cmd;
         if ((cmd = kshell_lookup_command(args[0], strlen(args[0]))) == NULL) {
@@ -455,4 +515,6 @@ int kshell_test(kshell_t *ksh,char *command)
         } else {
         return cmd->kc_cmd_func(ksh, argc, args);
         }
+
+        done: return -1;
 }
