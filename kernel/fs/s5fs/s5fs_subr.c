@@ -76,7 +76,7 @@ s5_seek_to_block(vnode_t *vnode, off_t seekptr, int alloc)
         /* Make sure offset is within file length
              i.e. not trying to read direct block that isn't used by file */
 
-        uint32_t disk_block_addr;
+        int disk_block_addr;
 
         /* Figure out if you're accessing a direct block or an indirect block */
         if (S5_DATA_BLOCK(seekptr) > S5_NDIRECT_BLOCKS-1) {
@@ -95,8 +95,8 @@ s5_seek_to_block(vnode_t *vnode, off_t seekptr, int alloc)
 
           /* If sparse and alloc == 1, allocate new block */
           if ((disk_block_addr == 0) && (alloc == 1)) {
-              disk_block_addr = alloc_block(VNODE_TO_S5FS(vnode));
-              if (disk_block_addr == -ENOSPC) return disk_block_addr; /* Return error code if alloc_block() failed */
+              disk_block_addr = s5_alloc_block(VNODE_TO_S5FS(vnode));
+              if (disk_block_addr < 0) return disk_block_addr; /* Return error code if alloc_block() failed */
 
               /* If you get here, disk_block_addr returned valid page number,
                *   set entry in indirect block appropriately.
@@ -120,7 +120,7 @@ s5_seek_to_block(vnode_t *vnode, off_t seekptr, int alloc)
 
         /* If sparse block and alloc is true, use alloc_block() */
         if ((disk_block_addr == 0) && (alloc == 1)) {
-            disk_block_addr = alloc_block(VNODE_TO_S5FS(vnode));
+            disk_block_addr = s5_alloc_block(VNODE_TO_S5FS(vnode));
             if (disk_block_addr == -ENOSPC) return disk_block_addr; /* Return error code if alloc_block() failed */
 
             /* If you get here, disk_block_addr returned valid page number,
@@ -361,26 +361,53 @@ s5_alloc_block(s5fs_t *fs)
          *   i.e. valid pagenum for disk's mmobj.
          */
 
+        lock_s5(fs);
+
         int disk_block; /* Will store disk block number of newly allocated block */
-        s5fs_t *s5fs = FS_TO_S5FS(fs);
-        s5_super_t *super = s5fs->s5f_super;
+        s5_super_t *super = fs->s5f_super;
 
         /* pframe_get() with S5FS_TO_VMOBJ(fs). Page 0. Bring superblock into pframe. */
         /* Lock fs mutex */
         pframe_t *pf;
-        pframe_get(S5FS_TO_VMOBJ(fs), 0, &pf);
+        pframe_get(S5FS_TO_VMOBJ(fs), S5_SUPER_BLOCK, &pf);
 
         /* If no free blocks in superblock, refill s5s_free_blocks and reset s5s_nfree. */
         /*   remember, last free block in list contains pointer to next set of free blocks */
         /* Check if last free block == -1, i.e. no more free blocks anywhere. */
-        if (super->s5s_nfree == 0)
+        if (super->s5s_nfree == 0) {
+            int next_link = super->s5s_free_blocks[S5_NBLKS_PER_FNODE-1]; /* Block number of block to copy entries from */
+
+            if (next_link == -1) return -ENOSPC; /* Reached end of free list. No more space on disk. */
+
+            /* Bring the page for that block into memory */
+            pframe_t *pf_next_block;
+            pframe_get(S5FS_TO_VMOBJ(fs), next_link, &pf_next_block);
+
+            /* Copy contents of next block into free_blocks array */
+            memcpy(super->s5s_free_blocks, pf_next_block->pf_addr, sizeof(super->s5s_free_blocks));
+            /* Reset nfree */
+            super->s5s_nfree = S5_NBLKS_PER_FNODE-1;
+
+            s5_dirty_super(fs);
+
+            unlock_s5(fs);
+
+            return next_link;
+        }
 
         /* Get a free block off the free list in the superblock */
+        disk_block = super->s5s_free_blocks[super->s5s_nfree - 1];
+        /* Reset nfree */
+        super->s5s_nfree--;
 
         /* Dirty the superblock (since you changed the values) */
         s5_dirty_super(fs);
 
-        NOT_YET_IMPLEMENTED("S5FS: s5_alloc_block");
+        unlock_s5(fs);
+
+        return disk_block;
+
+        /* NOT_YET_IMPLEMENTED("S5FS: s5_alloc_block"); */
         return -1;
 }
 
