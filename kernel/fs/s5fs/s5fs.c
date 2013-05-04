@@ -482,6 +482,8 @@ s5fs_create(vnode_t *dir, const char *name, size_t namelen, vnode_t **result)
 
         /*vput(dir);*/
 
+        return 0;
+
 
         /* NOT_YET_IMPLEMENTED("S5FS: s5fs_create"); */
         return -1;
@@ -921,8 +923,8 @@ s5fs_fillpage(vnode_t *vnode, off_t offset, void *pagebuf)
          *  Else, copy zeroes out
          */
         /* kmutex_lock(&vnode->vn_mutex);*/
-        int loc = s5_seek_to_block(vnode, offset, 0);
-        dbg_print("SEEK TO BLOCK RETURNS %d\n", loc);
+        int loc = s5_seek_to_block(vnode, offset, 0); /* Disk block to read data from */
+        dbg_print("fillpage: SEEK TO BLOCK RETURNS %d\n", loc);
         /* kmutex_unlock(&vnode->vn_mutex);*/
 
         if (loc == 0) { /* If no disk block with data, copy out zeroes */
@@ -960,10 +962,29 @@ s5fs_fillpage(vnode_t *vnode, off_t offset, void *pagebuf)
 static int
 s5fs_dirtypage(vnode_t *vnode, off_t offset)
 {
+        /*
+         * A hook; an attempt is being made to dirty the page
+         * belonging to 'vnode' that contains 'offset'. (If the
+         * underlying fs supports sparse blocks/pages, and the page
+         * containing this offset is currently sparse, this is
+         * where an attempt should be made to allocate a block in
+         * the underlying fs for that block/page). Return zero on
+         * success and nonzero otherwise (i.e., if there are no
+         * free blocks in the underlying fs, etc).
+         */
+
         /* If no space allocated in inode, get some (b/c that page will eventually be written)
          *   s5_alloc_block()
          *   when you manipulate inode, use s5_dirty_inode() to tell paging system
          */
+        /* Check entry for offset within vnode's file */
+        /* Call seek_to_block() */
+        int loc = s5_seek_to_block(vnode, offset, 1);
+        dbg_print("dirtypage: SEEK TO BLOCK RETURNS %d\n", loc);
+
+        if (loc == -ENOSPC) return loc;
+        return 0;
+
         NOT_YET_IMPLEMENTED("S5FS: s5fs_dirtypage");
         return -1;
 }
@@ -983,7 +1004,20 @@ s5fs_cleanpage(vnode_t *vnode, off_t offset, void *pagebuf)
          * Copy data out to disk (write_block)
          */
 
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_cleanpage");
+        /* kmutex_lock(&vnode->vn_mutex);*/
+        int loc = s5_seek_to_block(vnode, offset, 0);
+        dbg_print("cleanpage: SEEK TO BLOCK RETURNS %d\n", loc);
+        /* kmutex_unlock(&vnode->vn_mutex);*/
+
+        /* If you get here, there is a disk block with data */
+        /* return vnode->vn_bdev->bd_ops->write_block(vnode->vn_bdev, (char *)pagebuf, loc, 1); */
+        blockdev_t *bdev = FS_TO_S5FS(vnode->vn_fs)->s5f_bdev;
+        /* kmutex_lock(&vnode->vn_mutex);*/
+        int block = bdev->bd_ops->write_block(bdev, pagebuf, loc, 1); /* write_block() will block */
+        /* kmutex_unlock(&vnode->vn_mutex);*/
+        return block;
+
+        /* NOT_YET_IMPLEMENTED("S5FS: s5fs_cleanpage"); */
         return -1;
 }
 

@@ -445,40 +445,40 @@ done:
 /* Workaround for current unresponsive kshell problem */
 int kshell_test(kshell_t *ksh,char *command)
 {
-        char *args[10];
-        int argc = 0;
+/*        char *args[10];
+        int argc = 0; */
 
         /* Even though we can't redirect I/O to files before VFS, we
          * still want to scrub out any reference to redirection before
          * passing the line off to kshell_get_args */
-        int nbytes, retval;
-        int append;
+/*        int nbytes, retval;
+        int append; */
         /*
          * Need that extra byte at the end. See comment in
          * kshell_find_next_arg.
          */
-        char buf[KSH_BUF_SIZE + 1];
+/*        char buf[strlen(command)]; */
         /*int cmd_len = sizeof(command)/sizeof(*command);
         dbg_print("Size of command, *command: %d, %d\n", sizeof(command), sizeof(*command));
         dbg_print("Strlen: %d\n", strlen(command));
         dbg_print("Command length of '%s' = %d\n", command, cmd_len);*/
-        memcpy(&buf, command, strlen(command));
+/*        memcpy(&buf, command, strlen(command));
         nbytes = strlen(command);
         char redirect_in[MAXPATHLEN];
-        char redirect_out[MAXPATHLEN];
+        char redirect_out[MAXPATHLEN]; */
 
         /*if ((nbytes = kshell_read(ksh, buf, KSH_BUF_SIZE)) <= 0) {
                 return nbytes;
         }
         if (nbytes == 1) return 1;*/
-        if (buf[nbytes - 1] == '\n') {
+/*        if (buf[nbytes - 1] == '\n') { */
                 /* Overwrite the newline with a null terminator */
-                buf[--nbytes] = '\0';
-        } else {
+/*                buf[--nbytes] = '\0';
+        } else { */
                 /* Add the null terminator to the end */
-                buf[nbytes] = '\0';
-        }
-
+/*                buf[nbytes] = '\0';
+        } */
+/*
         redirect_in[0] = redirect_out[0] = '\0';
         if (kshell_find_redirection(ksh, buf, redirect_in, redirect_out, &append) < 0)
                 goto done;
@@ -488,7 +488,7 @@ int kshell_test(kshell_t *ksh,char *command)
                 goto done;
         }
 #endif
-
+*/
 /**
  * Finds the redirection operators ('<' and '>') in the input line,
  * stores the name of the file to redirect stdout in in redirect_out
@@ -506,15 +506,78 @@ int kshell_test(kshell_t *ksh,char *command)
  * @return 0 on success and <0 on error
  */
 
+/*
 
-        kshell_get_args(ksh, command, args, KSH_MAX_ARGS, &argc);
-        kshell_command_t *cmd;
+        kshell_get_args(ksh, buf, args, KSH_MAX_ARGS, &argc);
+        if (argc == 0) goto done;
+
+        dprintf("Attempting to execute command '%s'\n", args[0]);
+
+        if (strncmp(args[0], "exit", strlen(args[0])) == 0) {
+                nbytes = 0;
+                goto done;
+        }
+
+        if ((cmd = kshell_lookup_command(args[0], strlen(args[0]))) == NULL) {
+                kprintf(ksh, "kshell: %s not a valid command\n", args[0]);
+        } else {
+                if ((retval = cmd->kc_cmd_func(ksh, argc, args)) < 0) {
+                        nbytes = retval;
+                        goto done;
+                }
+        }
+        goto done;
+
+*/
+
+
+/*        kshell_get_args(ksh, command, args, KSH_MAX_ARGS, &argc); */
+/* added */
+/*        if (argc == 0) goto done;
+
+        dprintf("Attempting to execute command '%s'\n", args[0]);
+
+        if (strncmp(args[0], "exit", strlen(args[0])) == 0) {
+                nbytes = 0;
+                goto done;
+        }*/
+/* end added */
+/*        kshell_command_t *cmd;
         if ((cmd = kshell_lookup_command(args[0], strlen(args[0]))) == NULL) {
             kprintf(ksh, "kshell: %s not a valid command\n", args[0]);
             return -1;
-        } else {
-        return cmd->kc_cmd_func(ksh, argc, args);
-        }
+        } else { */
+                /* added */
+/*                if ((retval = cmd->kc_cmd_func(ksh, argc, args)) < 0) {
+                        nbytes = retval;
+                        goto done;
+                }*/
+                /* end added */
+/*        return cmd->kc_cmd_func(ksh, argc, args);*/
+/*        }
 
-        done: return -1;
+done:
+#ifdef __VFS__
+        kshell_undirect(ksh);
+#endif
+        return nbytes;*/
+
+char *args[10];
+int argc = 0;
+char redirect_in[MAXPATHLEN];
+char redirect_out[MAXPATHLEN];
+int append;
+redirect_in[0] = redirect_out[0] = '\0';
+kshell_find_redirection(ksh, command, redirect_in, redirect_out, &append );
+kshell_redirect(ksh, redirect_in, redirect_out, append);
+kshell_get_args(ksh, command, args, KSH_MAX_ARGS, &argc);
+kshell_command_t *cmd;
+if ((cmd = kshell_lookup_command(args[0], strlen(args[0]))) == NULL) {
+kprintf(ksh, "kshell: %s not a valid command\n", args[0]);
+} else {
+cmd->kc_cmd_func(ksh, argc, args);
+}
+kshell_undirect(ksh);
+return 0;
+
 }

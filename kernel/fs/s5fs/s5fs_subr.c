@@ -90,7 +90,25 @@ s5_seek_to_block(vnode_t *vnode, off_t seekptr, int alloc)
           off_t indirect_block_index = S5_DATA_BLOCK(seekptr) - S5_NDIRECT_BLOCKS;
           char *iblock_entry_addr = (char *) pf->pf_addr + (sizeof(int) * indirect_block_index);
 
+          /* Copy whatever lives at address stored in indirect block entry */
           memcpy((void *) &disk_block_addr, (void *) iblock_entry_addr, sizeof(int));
+
+          /* If sparse and alloc == 1, allocate new block */
+          if ((disk_block_addr == 0) && (alloc == 1)) {
+              disk_block_addr = alloc_block(VNODE_TO_S5FS(vnode));
+              if (disk_block_addr == -ENOSPC) return disk_block_addr; /* Return error code if alloc_block() failed */
+
+              /* If you get here, disk_block_addr returned valid page number,
+               *   set entry in indirect block appropriately.
+               */
+              memcpy((void *) iblock_entry_addr, (void *) &disk_block_addr, sizeof(int));
+
+              /* Dirty indirect block pframe, since you just wrote to it */
+              /* NOTE: In this case, inode contents don't change (same pointer to indirect block),
+               *       so don't need to dirty inode.
+               */
+              pframe_dirty(pf);
+          }
 
           pframe_unpin(pf);
 
@@ -100,9 +118,19 @@ s5_seek_to_block(vnode_t *vnode, off_t seekptr, int alloc)
         /* If accessing a direct block */
         disk_block_addr = inode->s5_direct_blocks[S5_DATA_BLOCK(seekptr)];
 
-        /* Check if block is sparse, i.e. disk addr is 0 */
-
         /* If sparse block and alloc is true, use alloc_block() */
+        if ((disk_block_addr == 0) && (alloc == 1)) {
+            disk_block_addr = alloc_block(VNODE_TO_S5FS(vnode));
+            if (disk_block_addr == -ENOSPC) return disk_block_addr; /* Return error code if alloc_block() failed */
+
+            /* If you get here, disk_block_addr returned valid page number,
+             *   set direct block entry appropriately.
+             */
+            inode->s5_direct_blocks[S5_DATA_BLOCK(seekptr)] = disk_block_addr;
+
+            /* Dirty inode, since you just wrote to it */
+            s5_dirty_inode(VNODE_TO_S5FS(vnode), inode);
+        }
 
         return disk_block_addr;
 
@@ -168,15 +196,17 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
         dbg_print("vnode dir length after: %d\n", vnode->vn_len);
         VNODE_TO_S5INODE(vnode)->s5_size += len;
 
+        /* Get first block into pframe */
         pframe_t *pf;
         int res = pframe_get(&vnode->vn_mmobj, block_num, &pf);
 
-        pframe_dirty(pf);
+        /* Write new bytes into that frame */
         char *read_startaddr = (char *)pf->pf_addr + S5_DATA_OFFSET(seek);
-        /* INSTEAD OF pf->pf_addr, USE inode->s5_directblocks[S5_DATA_BLOCK(seek)] ??? */
-        /* char *block_addr = inode->s5_direct_blocks[S5_DATA_BLOCK(seek)] + S5_DATA_OFFSET(seek); */
         memcpy((void *) read_startaddr, (void *)bytes, len);
 
+        /* Dirty pframe, which will call s5fs_dirtypage() */
+        res = pframe_dirty(pf);
+        if (res < 0 ) return res;
 
         return len;
 
@@ -327,6 +357,29 @@ return num bytes you read */
 static int
 s5_alloc_block(s5fs_t *fs)
 {
+        /* Returns disk address where newly allocated block lives.
+         *   i.e. valid pagenum for disk's mmobj.
+         */
+
+        int disk_block; /* Will store disk block number of newly allocated block */
+        s5fs_t *s5fs = FS_TO_S5FS(fs);
+        s5_super_t *super = s5fs->s5f_super;
+
+        /* pframe_get() with S5FS_TO_VMOBJ(fs). Page 0. Bring superblock into pframe. */
+        /* Lock fs mutex */
+        pframe_t *pf;
+        pframe_get(S5FS_TO_VMOBJ(fs), 0, &pf);
+
+        /* If no free blocks in superblock, refill s5s_free_blocks and reset s5s_nfree. */
+        /*   remember, last free block in list contains pointer to next set of free blocks */
+        /* Check if last free block == -1, i.e. no more free blocks anywhere. */
+        if (super->s5s_nfree == 0)
+
+        /* Get a free block off the free list in the superblock */
+
+        /* Dirty the superblock (since you changed the values) */
+        s5_dirty_super(fs);
+
         NOT_YET_IMPLEMENTED("S5FS: s5_alloc_block");
         return -1;
 }

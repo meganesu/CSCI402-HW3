@@ -370,11 +370,12 @@ initproc_run(int arg1, void *arg2)
         kshell_test(kshell, "stat README\n");
         dbg_print("Going to test stat hamlet\n");
         kshell_test(kshell, "stat hamlet\n");*/
-        dbg_print("Going to test 'echo test > short_file'\n");
-        kshell_test(kshell, "echo test > short_file\n");
-        kshell_test(kshell, "ls\n");
-        /*kshell_test(kshell, "cat short_file\n");
-        kshell_test(kshell, "stat short_file\n");*/
+        kshell_test(kshell, "stat hamlet\n");
+        dbg_print("Going to test 'echo hamlet > long_file'\n");
+        kshell_test(kshell, "cat hamlet > long_file\n");
+        /*kshell_test(kshell, "ls\n");*/
+        kshell_test(kshell, "cat long_file\n");
+        kshell_test(kshell, "stat long_file\n");
         /*while (kshell_execute_next(kshell));*/
         kshell_destroy(kshell);
 #endif
