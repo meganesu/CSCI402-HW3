@@ -83,6 +83,16 @@ s5_seek_to_block(vnode_t *vnode, off_t seekptr, int alloc)
           /* Indirect block field in inode corresponds to a disk block number
            *   where the indirect block data lives
            */
+          /* Check to see if indirect block has been allocated */
+          if ((inode->s5_indirect_block == 0) && (alloc == 1)) {
+              /* DO STUFF IN HERE TO ALLOCATE INDIRECT BLOCK */
+              int indir_block = s5_alloc_block(VNODE_TO_S5FS(vnode));
+              if (indir_block < 0) return indir_block;
+
+              /* Set newly allocated indirect block into inode info */
+              inode->s5_indirect_block = indir_block;
+          }
+
           pframe_t *pf;
           pframe_get(S5FS_TO_VMOBJ(VNODE_TO_S5FS(vnode)), inode->s5_indirect_block, &pf);
           pframe_pin(pf);
