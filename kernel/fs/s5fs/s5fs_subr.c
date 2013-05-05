@@ -639,7 +639,7 @@ s5_find_dirent(vnode_t *vnode, const char *name, size_t namelen)
         s5_dirent_t dirent;
         off_t offset = 0;
 
-        while ( s5_read_file(vnode, offset, (char*)&dirent, sizeof(s5_dirent_t)) != 0 ) {
+        while ( s5_read_file(vnode, offset, (char*)&dirent, sizeof(s5_dirent_t)) > 0 ) {
             dbg_print("Found directory %s on vnode %d\n", dirent.s5d_name, dirent.s5d_inode);
             if (name_match(dirent.s5d_name, name, namelen)) {
                 return dirent.s5d_inode;
@@ -818,27 +818,45 @@ seek should be length of parent. len is sizeof(dirent_t)
 return how many bytes you wrote
 */
 
-        /* Make sure child doesn't already exist */
-        int exists = s5_find_dirent(parent, name, namelen);
-        if (exists != -ENOENT) {
-            dbg_print("Can't create link. File %s already exists.\n", name);
-            return -EEXIST;
-        }
 
         /* If you get here, child file doesn't exist yet, so you can create it. */
-        s5_dirent_t new_dirent;
-        strncpy(&new_dirent.s5d_name, name, S5_NAME_LEN-1);
-        new_dirent.s5d_name[namelen] = '\0';
-        new_dirent.s5d_inode = VNODE_TO_S5INODE(child)->s5_number;
+            s5_dirent_t new_dirent;
+            strncpy(&new_dirent.s5d_name, name, S5_NAME_LEN-1);
+            new_dirent.s5d_name[namelen] = '\0';
 
-        int res = s5_write_file(parent, parent->vn_len, (char*)&new_dirent, sizeof(s5_dirent_t));
+        if (VNODE_TO_S5INODE(parent)->s5_type == S5_TYPE_DIR) {
+            /* Make sure child doesn't already exist */
+            int exists = s5_find_dirent(parent, name, namelen);
+            if (exists != -ENOENT) {
+                dbg_print("Can't create link. File %s already exists.\n", name);
+                return -EEXIST;
+            }
 
-        /* Increment the link count for the child inode */
-        VNODE_TO_S5INODE(child)->s5_linkcount++;
-        dbg_print("Incremented child %s link count to %d\n", name, VNODE_TO_S5INODE(child)->s5_linkcount);
+            new_dirent.s5d_inode = VNODE_TO_S5INODE(child)->s5_number;
 
-        /* Dirty parent's inode */
-        s5_dirty_inode(VNODE_TO_S5FS(parent), VNODE_TO_S5INODE(parent));
+            int res = s5_write_file(parent, parent->vn_len, (char*)&new_dirent, sizeof(s5_dirent_t));
+
+            /* Increment the link count for the child inode */
+            VNODE_TO_S5INODE(child)->s5_linkcount++;
+            dbg_print("Incremented child %s link count to %d\n", name, VNODE_TO_S5INODE(child)->s5_linkcount);
+
+            /* Dirty parent's inode */
+            s5_dirty_inode(VNODE_TO_S5FS(parent), VNODE_TO_S5INODE(parent));
+        }
+        else if (VNODE_TO_S5INODE(parent)->s5_type == S5_TYPE_DATA) {
+            /* Make sure file name to link to doesn't already exist */
+            int exists = s5_find_dirent(child, name, namelen);
+            if (exists != -ENOENT) {
+                dbg_print("Can't create link. File %s already exists.\n", name);
+                return -EEXIST;
+            }
+
+            new_dirent.s5d_inode = VNODE_TO_S5INODE(parent)->s5_number;
+            int res = s5_write_file(child, child->vn_len, (char*)&new_dirent, sizeof(s5_dirent_t));
+            VNODE_TO_S5INODE(parent)->s5_linkcount++;
+            dbg_print("Incremented parent %s link count to %d\n", name, VNODE_TO_S5INODE(parent)->s5_linkcount);
+            s5_dirty_inode(VNODE_TO_S5FS(child), VNODE_TO_S5INODE(child));
+        }
 
         return 0;
 
