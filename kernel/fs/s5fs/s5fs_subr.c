@@ -683,6 +683,83 @@ s5_find_dirent(vnode_t *vnode, const char *name, size_t namelen)
 int
 s5_remove_dirent(vnode_t *vnode, const char *name, size_t namelen)
 {
+
+/*        s5_dirent_t dirent;
+        off_t offset = 0;
+
+        while ( s5_read_file(vnode, offset, (char*)&dirent, sizeof(s5_dirent_t)) != 0 ) {
+            dbg_print("Found directory %s on vnode %d\n", dirent.s5d_name, dirent.s5d_inode);
+            if (name_match(dirent.s5d_name, name, namelen)) {
+                return dirent.s5d_inode;
+            }
+            offset += sizeof(s5_dirent_t);
+        }
+
+        return -ENOENT;
+*/
+
+        int dirent_ino = s5_find_dirent(vnode, name, namelen);
+        if (dirent_ino < 0) return dirent_ino;
+
+        /* If you get here, directory entry was found, so remove file */
+        s5_dirent_t file_to_rm;
+        s5_dirent_t last_dirent;
+        off_t rmfile_offset = -1;
+        off_t last_offset = 0;
+
+        while (s5_read_file(vnode, last_offset, (char *)&last_dirent, sizeof(s5_dirent_t)) != 0) {
+            dbg_print("Found directory %s on vnode %d\n", file_to_rm.s5d_name, file_to_rm.s5d_inode);
+            if (name_match(last_dirent.s5d_name, name, namelen)) {
+                file_to_rm = last_dirent;
+                rmfile_offset = last_offset;
+            }
+            last_offset += sizeof(s5_dirent_t);
+        }
+        last_offset -= sizeof(s5_dirent_t); /* When while exits, last_offset will be at end of directory dirents */
+                                            /*   we want it to point at the last dirent */
+
+        if (rmfile_offset == -1) return -ENOENT; /* If no dirent with matching name found, return error */
+
+        /* Check to make sure you aren't removing a directory */
+        vnode_t *rm_file = vget(vnode->vn_fs, file_to_rm.s5d_inode); 
+        if (VNODE_TO_S5INODE(rm_file)->s5_type == S5_TYPE_DIR) return -EPERM;
+
+        /* Match found. Write last dirent into location of found dirent. */
+        if (rmfile_offset != last_offset) {
+            int res = s5_write_file(vnode, rmfile_offset, (char *)&last_dirent, sizeof(s5_dirent_t));
+            if (res < 0) return res;
+        }
+
+        /* Update length of directory vnode and inode */
+        int old_len = vnode->vn_len;
+        vnode->vn_len -= sizeof(s5_dirent_t);
+        VNODE_TO_S5INODE(vnode)->s5_size -= sizeof(s5_dirent_t);
+        
+
+        /* If block at end of directory file no longer needed, free it */
+        if (S5_DATA_BLOCK(old_len) > S5_DATA_BLOCK(vnode->vn_len)) {
+            dbg_print("Extra block at end of vnode. STILL NEED TO FREE IT.\n");
+        }
+
+        /* Dirty directory inode */
+        s5_dirty_inode(VNODE_TO_S5FS(vnode), VNODE_TO_S5INODE(vnode));
+
+        /* Decrement link count in child */
+        VNODE_TO_S5INODE(rm_file)->s5_linkcount--;
+        s5_dirty_inode(VNODE_TO_S5FS(rm_file), VNODE_TO_S5INODE(rm_file));
+        vput(rm_file);
+
+        return 0;
+        
+        /* vget on vnode
+         * find offset into file where dirent lives
+         * if dirent is not a directory type, and it exists,
+         *   find the last directory entry in vnode->inode and
+         *   write it to offset where dirent to remove lived
+         *   CHANGE LENGTH IN INODE AND VNODE OF DIR
+         * decrement link count on file that was removed
+         */
+ 
         NOT_YET_IMPLEMENTED("S5FS: s5_remove_dirent");
         return -1;
 }
