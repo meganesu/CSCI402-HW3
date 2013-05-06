@@ -463,6 +463,7 @@ s5fs_create(vnode_t *dir, const char *name, size_t namelen, vnode_t **result)
 /* Like mkdir and mknod, but creating a regular data file. 
    Just change the type you pass in for alloc_inode()(?)
  	*/
+        kmutex_lock(&dir->vn_mutex);
 
         int inode_num = s5_alloc_inode(dir->vn_fs, S5_TYPE_DATA, 0); /* Pull new inode from disk */
 
@@ -472,16 +473,25 @@ s5fs_create(vnode_t *dir, const char *name, size_t namelen, vnode_t **result)
 
         /* link new directory to current directory and parent directory */
         int link1 = s5_link(dir, new_file, name, namelen); /* Create dirent for new_dir in parent dir */
+        if (link1 == -ENOSPC) {
+            dbg_print("ERROR. No room on disk to create file %s\n", name);
+            kmutex_unlock(&dir->vn_mutex);
+            s5_free_inode(new_file);
+            vput(new_file);
+            pframe_free(pf);
+            return -ENOSPC;
+        }
 
-        if (link1 != 0) {
+        if (link1 == -EEXIST) {
             dbg_print("ERROR. File %s already exists.\n", name);
+            kmutex_unlock(&dir->vn_mutex);
             return -EEXIST;
         }
 
         *result = new_file;
 
         /*vput(dir);*/
-
+        kmutex_unlock(&dir->vn_mutex);
         return 0;
 
 
@@ -507,7 +517,10 @@ s5fs_mknod(vnode_t *dir, const char *name, size_t namelen, int mode, devid_t dev
         else if (S_ISBLK(mode)) type = S5_TYPE_BLK;
         else return -1; /* Should not happen. This means mode passed in was not CHR or BLK. */
         dbg_print("type %d\n", type);
+
         int inode_num = s5_alloc_inode(dir->vn_fs, type, devid);
+
+        kmutex_lock(&dir->vn_mutex);
 
         pframe_t *pf;
         int res = pframe_get(S5FS_TO_VMOBJ(VNODE_TO_S5FS(dir)), S5_INODE_BLOCK(inode_num), &pf);
@@ -518,12 +531,14 @@ s5fs_mknod(vnode_t *dir, const char *name, size_t namelen, int mode, devid_t dev
 
         if (link1 != 0) {
             dbg_print("ERROR. File %s already exists.\n", name);
+            kmutex_unlock(&dir->vn_mutex);
             return -EEXIST;
         }
 
         vput(new_dev);
 
         dbg_print("new dev linkcount: %d\n", VNODE_TO_S5INODE(new_dev)->s5_linkcount);
+        kmutex_unlock(&dir->vn_mutex);
         return 0;
 
         /* NOT_YET_IMPLEMENTED("S5FS: s5fs_mknod"); */
@@ -621,9 +636,9 @@ s5fs_link(vnode_t *src, vnode_t *dir, const char *name, size_t namelen)
         /* Add a directory entry linking to the vnode
          * Dirty file blocks (and maybe the inode)
          */
-        kmutex_lock(&src->vn_mutex);
+        /*kmutex_lock(&src->vn_mutex);*/
         int res = s5_link(src, dir, name, namelen);
-        kmutex_unlock(&src->vn_mutex);
+        /*kmutex_unlock(&src->vn_mutex);*/
         return res;
         /* NOT_YET_IMPLEMENTED("S5FS: s5fs_link"); */
         return -1;
@@ -644,7 +659,7 @@ s5fs_unlink(vnode_t *dir, const char *name, size_t namelen)
          * Reduce link count
          * Dirty file blocks (and maybe the inode)
          */
-        kmutex_lock(&dir->vn_mutex);
+        /*kmutex_lock(&dir->vn_mutex);*/
 
         /* Check to make sure you aren't trying to remove a directory */
         /* NOTE: This is redundant, but we can't put this check in remove_dirent(),
@@ -655,14 +670,14 @@ s5fs_unlink(vnode_t *dir, const char *name, size_t namelen)
             vnode_t *rm_file = vget(dir->vn_fs, dirent_ino);
             if (VNODE_TO_S5INODE(rm_file)->s5_type == S5_TYPE_DIR) {
                 vput(rm_file);
-                kmutex_unlock(&dir->vn_mutex);
+                /*kmutex_unlock(&dir->vn_mutex);*/
                 return -EPERM;
             }
             vput(rm_file);
         }
 
         int res = s5_remove_dirent(dir, name, namelen);
-        kmutex_unlock(&dir->vn_mutex);
+        /*kmutex_unlock(&dir->vn_mutex);*/
         return res;
         /* NOT_YET_IMPLEMENTED("S5FS: s5fs_unlink"); */
         return -1;
@@ -718,7 +733,7 @@ s5fs_mkdir(vnode_t *dir, const char *name, size_t namelen)
  *
  * You probably want to use s5_find_dirent(), s5_write_file(), and s5_dirty_inode().
  */
-
+        kmutex_lock(&dir->vn_mutex);
         int inode_num = s5_alloc_inode(dir->vn_fs, S5_TYPE_DIR, 0);
 
         pframe_t *pf;
@@ -729,6 +744,7 @@ s5fs_mkdir(vnode_t *dir, const char *name, size_t namelen)
 
         if (VNODE_TO_S5INODE(new_dir)->s5_linkcount != 1) { /* Only one linking to you is from the vget */
             dbg_print("ERROR. File %s already exists.\n", name);
+            kmutex_unlock(&dir->vn_mutex);
             return -EEXIST;
         }
 
@@ -748,6 +764,7 @@ s5fs_mkdir(vnode_t *dir, const char *name, size_t namelen)
         /*dbg_print("Child %s link count is %d\n", name, VNODE_TO_S5INODE(new_dir)->s5_linkcount);
         dbg_print("  Child %s ref count is %d\n", name, new_dir->vn_refcount);*/
 
+        kmutex_unlock(&dir->vn_mutex);
         return 0;
 
 /*
@@ -805,12 +822,19 @@ s5fs_rmdir(vnode_t *parent, const char *name, size_t namelen)
  * You probably want to use vget(), vput(), s5_read_file(),
  * s5_write_file(), and s5_dirty_inode().
  */
+        kmutex_lock(&parent->vn_mutex);
         int dir_ino = s5_find_dirent(parent, name, namelen);
-        if (dir_ino < 0) return dir_ino; /* If dir to remove not in parent dir, return errno */
+        if (dir_ino < 0) {
+            kmutex_unlock(&parent->vn_mutex);
+            return dir_ino; /* If dir to remove not in parent dir, return errno */
+        }
 
         /* Check to make sure vnode to remove is directory type */
         vnode_t *dir_to_rm = vget(parent->vn_fs, dir_ino);
-        if (VNODE_TO_S5INODE(dir_to_rm)->s5_type != S5_TYPE_DIR) return -ENOTDIR;
+        if (VNODE_TO_S5INODE(dir_to_rm)->s5_type != S5_TYPE_DIR) {
+            kmutex_unlock(&parent->vn_mutex);
+            return -ENOTDIR;
+        }
 
         /* Make sure directory is empty. (Except for . and ..) */
         s5_dirent_t dirent;
@@ -820,6 +844,7 @@ s5fs_rmdir(vnode_t *parent, const char *name, size_t namelen)
             if (!name_match(dirent.s5d_name, ".", 1) && !name_match(dirent.s5d_name, "..", 2)) {
                 dbg_print("ERROR. Cannot delete non-empty directory, %s\n", name);
                 vput(dir_to_rm);
+                kmutex_unlock(&parent->vn_mutex);
                 return -EPERM;
             }
             offset += sizeof(s5_dirent_t);
@@ -844,6 +869,7 @@ s5fs_rmdir(vnode_t *parent, const char *name, size_t namelen)
         vput(dir_to_rm);
 
         int res = s5_remove_dirent(parent, name, namelen);
+        kmutex_unlock(&parent->vn_mutex);
         return res;
 
 /* Make sure vnode to remove is directory type */
@@ -882,7 +908,11 @@ s5fs_readdir(vnode_t *vnode, off_t offset, struct dirent *d)
  * bytes actually read, or 0 if the end of the file has been reached; on
  * failure, return -errno.
  */
-        if (offset == vnode->vn_len) return 0; /* Don't read dirent if EOF reached */
+        kmutex_lock(&vnode->vn_mutex);
+        if (offset == vnode->vn_len) {
+            kmutex_unlock(&vnode->vn_mutex);
+            return 0; /* Don't read dirent if EOF reached */
+        }
 
         s5_dirent_t dirent_read;
         int blocks_read = s5_read_file(vnode, offset, (char *)&dirent_read, sizeof(s5_dirent_t));
@@ -902,6 +932,7 @@ typedef struct s5_dirent {
         d->d_ino = dirent_read.s5d_inode;
         d->d_off = offset+blocks_read;
         strncpy(d->d_name, dirent_read.s5d_name, S5_NAME_LEN-1);
+        kmutex_unlock(&vnode->vn_mutex);
         return blocks_read;
         /* NOT_YET_IMPLEMENTED("S5FS: s5fs_readdir");*/
         return -1;
@@ -920,6 +951,8 @@ typedef struct s5_dirent {
 static int
 s5fs_stat(vnode_t *vnode, struct stat *ss)
 {
+        kmutex_lock(&vnode->vn_mutex);
+
         s5_inode_t *i = VNODE_TO_S5INODE(vnode);
 
         ss->st_mode = vnode->vn_mode;
@@ -927,8 +960,8 @@ s5fs_stat(vnode_t *vnode, struct stat *ss)
         ss->st_nlink = VNODE_TO_S5INODE(vnode)->s5_linkcount;
         ss->st_size = vnode->vn_len;
         ss->st_blksize = S5_BLOCK_SIZE;
-        kmutex_lock(&vnode->vn_mutex);
         ss->st_blocks = s5_inode_blocks(vnode);
+
         kmutex_unlock(&vnode->vn_mutex);
 
         return 0;

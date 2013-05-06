@@ -371,22 +371,30 @@ initproc_run(int arg1, void *arg2)
         dbg_print("Going to test stat hamlet\n");
         kshell_test(kshell, "stat hamlet\n");*/
         /*kshell_test(kshell, "stat hamlet\n"); */
+        /*dbg_print("Going to test 'thread_test 2'\n");
+        kshell_test(kshell, "thread_test 2\n");
+        kshell_test(kshell, "ls dir000\n");
+        kshell_test(kshell, "ls dir001\n");*/
+        /*dbg_print("Going to test 'directory_test 2'\n");
+        kshell_test(kshell, "directory_test 2\n");
+        kshell_test(kshell, "ls dir000\n");
+        kshell_test(kshell, "ls dir001\n");*/
         dbg_print("Going to test 'space_test'\n");
         kshell_test(kshell, "space_test\n");
         /*kshell_test(kshell, "ls\n");*/
         kshell_test(kshell, "echo data > newfile\n");
-        /*kshell_test(kshell, "cat newfile\n");
+        kshell_test(kshell, "cat newfile\n");
         kshell_test(kshell, "stat newfile\n");
         kshell_test(kshell, "ls\n");
-        kshell_test(kshell, "stat space\n");*/
+        /*kshell_test(kshell, "stat space\n");*/
         /*kshell_test(kshell, "cat space\n");*/
         kshell_test(kshell, "rm space\n");
         kshell_test(kshell, "echo data > newfile\n");
         kshell_test(kshell, "cat newfile\n");
-        kshell_test(kshell, "stat newfile\n");
+        kshell_test(kshell, "stat newfile\n");/*
         kshell_test(kshell, "echo data > newfile2\n");
         kshell_test(kshell, "cat newfile2\n");
-        kshell_test(kshell, "stat newfile2\n");
+        kshell_test(kshell, "stat newfile2\n");*/
         /*dbg_print("Going to test 'rm test'\n");
         kshell_test(kshell, "rm test\n");
         kshell_test(kshell, "ls\n");

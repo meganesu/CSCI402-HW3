@@ -219,7 +219,10 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
 
         /* Dirty pframe, which will call s5fs_dirtypage() */
         res = pframe_dirty(pf);
-        if (res < 0 ) return res;
+        if (res < 0 ) {
+            pframe_free(pf);
+            return res;
+        }
 
         return len;
 
@@ -830,7 +833,7 @@ return how many bytes you wrote
             strncpy(&new_dirent.s5d_name, name, S5_NAME_LEN-1);
             new_dirent.s5d_name[namelen] = '\0';
 
-        if (VNODE_TO_S5INODE(parent)->s5_type == S5_TYPE_DIR) {
+        if (VNODE_TO_S5INODE(parent)->s5_type == S5_TYPE_DIR) { /* Adding a new file to a directory */
             /* Make sure child doesn't already exist */
             int exists = s5_find_dirent(parent, name, namelen);
             if (exists != -ENOENT) {
@@ -841,6 +844,7 @@ return how many bytes you wrote
             new_dirent.s5d_inode = VNODE_TO_S5INODE(child)->s5_number;
 
             int res = s5_write_file(parent, parent->vn_len, (char*)&new_dirent, sizeof(s5_dirent_t));
+            if (res < 0) return res;
 
             /* Increment the link count for the child inode */
             VNODE_TO_S5INODE(child)->s5_linkcount++;
@@ -849,7 +853,7 @@ return how many bytes you wrote
             /* Dirty parent's inode */
             s5_dirty_inode(VNODE_TO_S5FS(parent), VNODE_TO_S5INODE(parent));
         }
-        else if (VNODE_TO_S5INODE(parent)->s5_type == S5_TYPE_DATA) {
+        else if (VNODE_TO_S5INODE(parent)->s5_type == S5_TYPE_DATA) { /* Linking a data file to another data file */
             /* Make sure file name to link to doesn't already exist */
             int exists = s5_find_dirent(child, name, namelen);
             if (exists != -ENOENT) {
@@ -859,6 +863,8 @@ return how many bytes you wrote
 
             new_dirent.s5d_inode = VNODE_TO_S5INODE(parent)->s5_number;
             int res = s5_write_file(child, child->vn_len, (char*)&new_dirent, sizeof(s5_dirent_t));
+            if (res < 0) return res;
+
             VNODE_TO_S5INODE(parent)->s5_linkcount++;
             dbg_print("Incremented parent %s link count to %d\n", name, VNODE_TO_S5INODE(parent)->s5_linkcount);
             s5_dirty_inode(VNODE_TO_S5FS(child), VNODE_TO_S5INODE(child));
