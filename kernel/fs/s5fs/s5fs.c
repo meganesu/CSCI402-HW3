@@ -466,6 +466,10 @@ s5fs_create(vnode_t *dir, const char *name, size_t namelen, vnode_t **result)
         kmutex_lock(&dir->vn_mutex);
 
         int inode_num = s5_alloc_inode(dir->vn_fs, S5_TYPE_DATA, 0); /* Pull new inode from disk */
+        if (inode_num == -ENOSPC) {
+            kmutex_unlock(&dir->vn_mutex);
+            return inode_num;
+        }
 
         pframe_t *pf;
         int res = pframe_get(S5FS_TO_VMOBJ(VNODE_TO_S5FS(dir)), S5_INODE_BLOCK(inode_num), &pf);
@@ -476,8 +480,8 @@ s5fs_create(vnode_t *dir, const char *name, size_t namelen, vnode_t **result)
         if (link1 == -ENOSPC) {
             dbg_print("ERROR. No room on disk to create file %s\n", name);
             kmutex_unlock(&dir->vn_mutex);
-            s5_free_inode(new_file);
-            vput(new_file);
+            /*s5_free_inode(new_file);
+            vput(new_file);*/
             pframe_free(pf);
             return -ENOSPC;
         }
@@ -519,6 +523,7 @@ s5fs_mknod(vnode_t *dir, const char *name, size_t namelen, int mode, devid_t dev
         dbg_print("type %d\n", type);
 
         int inode_num = s5_alloc_inode(dir->vn_fs, type, devid);
+        if (inode_num == -ENOSPC) return inode_num;
 
         kmutex_lock(&dir->vn_mutex);
 
@@ -591,9 +596,10 @@ s5fs_lookup(vnode_t *base, const char *name, size_t namelen, vnode_t **result)
          dbg_print("Looking up %s\n", name);
          kmutex_lock(&base->vn_mutex);
          int inum = s5_find_dirent(base, name, namelen);
-         kmutex_unlock(&base->vn_mutex);
+
          if (inum == -ENOENT) {
              dbg_print("ERROR. No dir entry with given name.\n");
+             kmutex_unlock(&base->vn_mutex);
              return inum;
          }
          /* If you get here, dir entry has matching name. inum is its inode number. */
@@ -612,7 +618,7 @@ s5fs_lookup(vnode_t *base, const char *name, size_t namelen, vnode_t **result)
  *
  *     MAY BLOCK.
  */
-        kmutex_lock(&base->vn_mutex);
+
         *result = vget(base->vn_fs, inum);
         kmutex_unlock(&base->vn_mutex);
         return 0;
@@ -735,6 +741,10 @@ s5fs_mkdir(vnode_t *dir, const char *name, size_t namelen)
  */
         kmutex_lock(&dir->vn_mutex);
         int inode_num = s5_alloc_inode(dir->vn_fs, S5_TYPE_DIR, 0);
+        if (inode_num == -ENOSPC) {
+            kmutex_unlock(&dir->vn_mutex);
+            return inode_num;
+        }
 
         pframe_t *pf;
         int res = pframe_get(S5FS_TO_VMOBJ(VNODE_TO_S5FS(dir)), S5_INODE_BLOCK(inode_num), &pf);

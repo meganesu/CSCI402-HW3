@@ -204,11 +204,6 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
         /* This is the address where the data for the block you want to write starts */
         int block_addr = inode->s5_direct_blocks[block_num];
 
-        dbg_print("vnode dir length before: %d\n", vnode->vn_len);
-        vnode->vn_len += len;
-        dbg_print("vnode dir length after: %d\n", vnode->vn_len);
-        VNODE_TO_S5INODE(vnode)->s5_size += len;
-
         /* Get first block into pframe */
         pframe_t *pf;
         int res = pframe_get(&vnode->vn_mmobj, block_num, &pf);
@@ -223,6 +218,11 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
             pframe_free(pf);
             return res;
         }
+
+        dbg_print("vnode dir length before: %d\n", vnode->vn_len);
+        vnode->vn_len += len;
+        dbg_print("vnode dir length after: %d\n", vnode->vn_len);
+        VNODE_TO_S5INODE(vnode)->s5_size += len;
 
         return len;
 
@@ -897,6 +897,8 @@ s5_inode_blocks(vnode_t *vnode)
             blocks_to_check++; /* Additional block needed to hold partial block at end of file */
         }
         dbg_print("Blocks to check: %d\n", blocks_to_check);
+
+        if (blocks_to_check == 0) return block_count;
 
         int i;
         for (i = 0; i < S5_NDIRECT_BLOCKS; i++) {
