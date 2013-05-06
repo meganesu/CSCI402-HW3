@@ -371,8 +371,34 @@ initproc_run(int arg1, void *arg2)
         dbg_print("Going to test stat hamlet\n");
         kshell_test(kshell, "stat hamlet\n");*/
         /*kshell_test(kshell, "stat hamlet\n"); */
-        dbg_print("Going to test 'echo test > file'\n");
-        kshell_test(kshell, "echo test > file\n");
+        dbg_print("Going to test 'space_test'\n");
+        kshell_test(kshell, "space_test\n");
+        /*kshell_test(kshell, "ls\n");*/
+        kshell_test(kshell, "echo data > newfile\n");
+        /*kshell_test(kshell, "cat newfile\n");
+        kshell_test(kshell, "stat newfile\n");
+        kshell_test(kshell, "ls\n");
+        kshell_test(kshell, "stat space\n");*/
+        /*kshell_test(kshell, "cat space\n");*/
+        kshell_test(kshell, "rm space\n");
+        kshell_test(kshell, "echo data > newfile\n");
+        kshell_test(kshell, "cat newfile\n");
+        kshell_test(kshell, "stat newfile\n");
+        kshell_test(kshell, "echo data > newfile2\n");
+        kshell_test(kshell, "cat newfile2\n");
+        kshell_test(kshell, "stat newfile2\n");
+        /*dbg_print("Going to test 'rm test'\n");
+        kshell_test(kshell, "rm test\n");
+        kshell_test(kshell, "ls\n");
+        dbg_print("Going to test 'mkdir newdir'\n");
+        kshell_test(kshell, "mkdir newdir\n");
+        kshell_test(kshell, "ls\n");
+        kshell_test(kshell, "ls newdir\n");
+        dbg_print("Going to test 'rmdir newdir'\n");
+        kshell_test(kshell, "rmdir newdir\n");
+        kshell_test(kshell, "ls\n");*/
+        /*dbg_print("Going to test 'echo test > file'\n");
+        kshell_test(kshell, "echo test > file\n");*/
         /*kshell_test(kshell, "ls\n");
         kshell_test(kshell, "cat file\n");*/
         /*dbg_print("Going to test 'rm short_file'\n");
@@ -380,18 +406,18 @@ initproc_run(int arg1, void *arg2)
         kshell_test(kshell, "ls\n");
         dbg_print("Going to test 'rm test'\n");
         kshell_test(kshell, "rm test\n");*/
-        dbg_print("Going to test 'link file file2'\n");
-        kshell_test(kshell, "link file file2\n");
+        /*dbg_print("Going to test 'link file file2'\n");
+        kshell_test(kshell, "link file file2\n");*/
         /*kshell_test(kshell, "ls\n");
         kshell_test(kshell, "cat file2\n");*/
-        dbg_print("Going to test 'cat file README > file3'\n");
-        kshell_test(kshell, "cat file README > file3\n");
+        /*dbg_print("Going to test 'cat file README > file3'\n");
+        kshell_test(kshell, "cat file README > file3\n");*/
         /*kshell_test(kshell, "ls\n");*/
-        kshell_test(kshell, "cat file3 README > file2\n");
+        /*kshell_test(kshell, "cat file3 README > file2\n");*/
         /*kshell_test(kshell, "ls\n");*/
-        kshell_test(kshell, "cat file3\n");
+        /*kshell_test(kshell, "cat file3\n");
         kshell_test(kshell, "cat file2\n");
-        kshell_test(kshell, "cat file\n");
+        kshell_test(kshell, "cat file\n");*/
         /*while (kshell_execute_next(kshell));*/
         kshell_destroy(kshell);
 #endif

@@ -645,6 +645,22 @@ s5fs_unlink(vnode_t *dir, const char *name, size_t namelen)
          * Dirty file blocks (and maybe the inode)
          */
         kmutex_lock(&dir->vn_mutex);
+
+        /* Check to make sure you aren't trying to remove a directory */
+        /* NOTE: This is redundant, but we can't put this check in remove_dirent(),
+         *     since rmdir() also calls remove_dirent()
+         */
+        int dirent_ino = s5_find_dirent(dir, name, namelen);
+        if (dirent_ino > 0) {
+            vnode_t *rm_file = vget(dir->vn_fs, dirent_ino);
+            if (VNODE_TO_S5INODE(rm_file)->s5_type == S5_TYPE_DIR) {
+                vput(rm_file);
+                kmutex_unlock(&dir->vn_mutex);
+                return -EPERM;
+            }
+            vput(rm_file);
+        }
+
         int res = s5_remove_dirent(dir, name, namelen);
         kmutex_unlock(&dir->vn_mutex);
         return res;
@@ -783,28 +799,58 @@ s5fs_rmdir(vnode_t *parent, const char *name, size_t namelen)
  * and delete it. If there is no entry with the given name, return
  * -ENOENT.
  *
- * In order to ensure that the directory entries are contiguous in the
- * directory file, you will need to move the last directory entry into
- * the remove dirent's place.
- *
  * When this function returns, the inode refcount on the removed file
  * should be decremented.
- *
- * It would be a nice extension to free blocks from the end of the
- * directory file which are no longer needed.
- *
- * Don't forget to dirty appropriate blocks!
  *
  * You probably want to use vget(), vput(), s5_read_file(),
  * s5_write_file(), and s5_dirty_inode().
  */
+        int dir_ino = s5_find_dirent(parent, name, namelen);
+        if (dir_ino < 0) return dir_ino; /* If dir to remove not in parent dir, return errno */
 
+        /* Check to make sure vnode to remove is directory type */
+        vnode_t *dir_to_rm = vget(parent->vn_fs, dir_ino);
+        if (VNODE_TO_S5INODE(dir_to_rm)->s5_type != S5_TYPE_DIR) return -ENOTDIR;
+
+        /* Make sure directory is empty. (Except for . and ..) */
+        s5_dirent_t dirent;
+        off_t offset = 0;
+
+        while ( s5_read_file(dir_to_rm, offset, (char*) &dirent, sizeof(s5_dirent_t)) > 0 ) {
+            if (!name_match(dirent.s5d_name, ".", 1) && !name_match(dirent.s5d_name, "..", 2)) {
+                dbg_print("ERROR. Cannot delete non-empty directory, %s\n", name);
+                vput(dir_to_rm);
+                return -EPERM;
+            }
+            offset += sizeof(s5_dirent_t);
+        }
+
+/*        s5_dirent_t dirent;
+        off_t offset = 0;
+
+        while ( s5_read_file(vnode, offset, (char*)&dirent, sizeof(s5_dirent_t)) != 0 ) {
+            dbg_print("Found directory %s on vnode %d\n", dirent.s5d_name, dirent.s5d_inode);
+            if (name_match(dirent.s5d_name, name, namelen)) {
+                return dirent.s5d_inode;
+            }
+            offset += sizeof(s5_dirent_t);
+        }
+
+        return -ENOENT;
+*/
+
+        /* Decrement linkcount on parent, since .. no longer references it */
+        VNODE_TO_S5INODE(parent)->s5_linkcount--;
+        vput(dir_to_rm);
+
+        int res = s5_remove_dirent(parent, name, namelen);
+        return res;
 
 /* Make sure vnode to remove is directory type */
 /* Make sure directory is empty. Scan through dirents and make sure
  *  only . and .. are present. Otherwise return error.
  */
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_rmdir");
+        /* NOT_YET_IMPLEMENTED("S5FS: s5fs_rmdir"); */
         return -1;
 }
 

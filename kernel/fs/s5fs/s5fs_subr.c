@@ -106,7 +106,10 @@ s5_seek_to_block(vnode_t *vnode, off_t seekptr, int alloc)
           /* If sparse and alloc == 1, allocate new block */
           if ((disk_block_addr == 0) && (alloc == 1)) {
               disk_block_addr = s5_alloc_block(VNODE_TO_S5FS(vnode));
-              if (disk_block_addr < 0) return disk_block_addr; /* Return error code if alloc_block() failed */
+              if (disk_block_addr < 0) {
+                  pframe_unpin(pf);
+                  return disk_block_addr; /* Return error code if alloc_block() failed */
+              }
 
               /* If you get here, disk_block_addr returned valid page number,
                *   set entry in indirect block appropriately.
@@ -387,7 +390,10 @@ s5_alloc_block(s5fs_t *fs)
         if (super->s5s_nfree == 0) {
             int next_link = super->s5s_free_blocks[S5_NBLKS_PER_FNODE-1]; /* Block number of block to copy entries from */
 
-            if (next_link == -1) return -ENOSPC; /* Reached end of free list. No more space on disk. */
+            if (next_link == -1) {
+                unlock_s5(fs);
+                return -ENOSPC; /* Reached end of free list. No more space on disk. */
+            }
 
             /* Bring the page for that block into memory */
             pframe_t *pf_next_block;
@@ -708,7 +714,7 @@ s5_remove_dirent(vnode_t *vnode, const char *name, size_t namelen)
         off_t last_offset = 0;
 
         while (s5_read_file(vnode, last_offset, (char *)&last_dirent, sizeof(s5_dirent_t)) != 0) {
-            dbg_print("Found directory %s on vnode %d\n", file_to_rm.s5d_name, file_to_rm.s5d_inode);
+            dbg_print("Found directory %s on vnode %d\n", last_dirent.s5d_name, last_dirent.s5d_inode);
             if (name_match(last_dirent.s5d_name, name, namelen)) {
                 file_to_rm = last_dirent;
                 rmfile_offset = last_offset;
@@ -720,9 +726,9 @@ s5_remove_dirent(vnode_t *vnode, const char *name, size_t namelen)
 
         if (rmfile_offset == -1) return -ENOENT; /* If no dirent with matching name found, return error */
 
-        /* Check to make sure you aren't removing a directory */
+        /* Check to make sure you aren't removing a directory - CAN'T DO HERE, SINCE RMDIR() CALLS THIS */
         vnode_t *rm_file = vget(vnode->vn_fs, file_to_rm.s5d_inode); 
-        if (VNODE_TO_S5INODE(rm_file)->s5_type == S5_TYPE_DIR) return -EPERM;
+        /*if (VNODE_TO_S5INODE(rm_file)->s5_type == S5_TYPE_DIR) return -EPERM;*/
 
         /* Match found. Write last dirent into location of found dirent. */
         if (rmfile_offset != last_offset) {
@@ -760,7 +766,7 @@ s5_remove_dirent(vnode_t *vnode, const char *name, size_t namelen)
          * decrement link count on file that was removed
          */
  
-        NOT_YET_IMPLEMENTED("S5FS: s5_remove_dirent");
+        /* NOT_YET_IMPLEMENTED("S5FS: s5_remove_dirent"); */
         return -1;
 }
 
